@@ -1,0 +1,58 @@
+d6: 1, 2, 3, 4, 5, 6
+
+pass:
+
+player: type of role
+    hand: 5 secret d6
+    score: 0
+
+players: 2 to many player
+
+guess:
+    face: 1 from d6
+    count: 1 from 1 to 5
+    player: 1 from players
+
+first_player: 1 from players
+    "The player who's drunk the most!"
+
+losers: many from players where score < -3
+winner: 1 from players where any:
+    score > 3
+    losers = players - winner
+
+many where not winner:
+    current_guess: 1 guess
+    ones_are_wild: no
+    first_guess: yes
+
+    current_player: first_player
+        make_guess: choose guess or pass:
+            pass where not first_guess
+            guess where:
+                player = current_player
+                count > count of current_guess
+                count = count of current_guess and face > face of current_guess
+
+    many:>
+        when player of current_guess = current_player:
+            "If everyone else passes, everyone reveals their hand and compares it against the guess."
+            actual_total:
+                count hand of players where any:
+                    top = face of current_guess
+                    top = 1 and ones_are_wild
+            guess_total: count of current_guess
+            correct_guess: guess_total <= actual_total
+
+            when correct_guess:
+                add to score of player of current_guess: -1
+            else:
+                add to score of player of current_guess: +1
+            end round
+
+        player_guess: make_guess! of current_player
+        when type of player_guess = guess:
+            when first_guess and face of player_guess = 1:
+                change ones_are_wild: yes
+            change current_guess: player_guess
+        next current_player
