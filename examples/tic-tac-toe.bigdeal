@@ -1,0 +1,27 @@
+nought: "O"
+cross: "X"
+blank:
+
+1 board: grid
+    rows: 3
+    cols: 3
+    content: blank
+
+winning_line: diagonal of grid where any:
+    diagonal = 3 of nought
+    diagonal = 3 of cross
+
+player:
+    symbol: 1 nought or cross
+
+players: 2 player
+
+winner: 1 from players where symbol = content of winning_line
+
+current_player: 1 from players
+    pick_square: choose 1 from grid where content = blank
+
+many where not winner:
+    chosen_square: pick_square! of current_player
+    change content of chosen_square: symbol of current_player
+    change current_player: next current_player

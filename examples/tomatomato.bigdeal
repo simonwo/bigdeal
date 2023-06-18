@@ -1,0 +1,74 @@
+card:
+    word: 1 from "tomato", "ma", "mato", "to", "potato"
+    reverse: no
+
+1 deck:
+    10 card:
+        word: "tomato"
+    1 card:
+        word: "potato"
+
+special_die: 1, 1, 1, 2, 2, 3
+
+stack: runs of card
+
+1 track: 0 stack
+1 discard: 0 stack
+
+player:
+    1 hand: 0 to many card
+
+    scoring_set: 1 to 3 card from hand where any:
+        1 card where word = "tomato"
+        2 card where all:
+            1 card where word = "to"
+            1 card where word = "mato"
+        3 card where all:
+            1 card where word = "ma"
+            2 card where word = "to"
+
+    scoring_sets: many from scoring_set
+    score: count of scoring_sets
+
+    say: choose yes or no
+    pick_stack: choose 1 from track
+
+players: 3 to 6 player
+
+highest_scorers: many player from players where score of player >= score of others
+potato_holder: 1 player from highest_scorers where:
+    1 from hand of player where word = "potato"
+most_cards: many player from highest_scorers where count of hand of player >= count of hand from others
+
+winner: 1 from players where any:
+    1 from potato_holder
+    1 from most_cards
+    1 from highest_scorers
+
+current_player: 1 from players
+    "The player who most recently ate a tomato."
+
+round:>
+    flip_count: 1 from special_die
+
+    many turn:>
+        append to track: take next flip_count from deck
+        successful: say of current_player
+        when not successful:
+            other_players: many player from players where player != current_player
+            chosen_stacks:
+                player: 1 from other_players
+                stack: pick_stack of player
+            grouped_stacks: groups of chosen_stacks where:
+                group_by = stack
+            clashes: many from grouped_stacks where size > 1
+            append to discard: take stack from track where stack = stack of clashes
+            scores: many from grouped_stacks where size = 1
+            append to hand of player of scores: take stack from track where stack = stack of scores
+            change track: take next many runs of track
+            next current_player
+            next round
+
+        next current_player
+
+many round where 1 from deck

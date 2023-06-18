@@ -1,0 +1,16 @@
+suits:
+    club: "♣️"
+    diamond: "♦️"
+    heart: "❤️"
+    spade: "♠️"
+
+faces:
+    jack: "J"
+    queen: "Q"
+    king: "K"
+
+card:
+    suit: 1 from suits
+    value: 1 from 1 to 10 or 1 from faces
+
+deck: every card
