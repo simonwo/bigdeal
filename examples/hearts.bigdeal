@@ -1,0 +1,71 @@
+1 secret deck:
+	every card where count of players = 3 and not:
+		suit = ♦️ and value = 2
+	every card where count of players = 4
+	every card where count of players = 5 and not:
+		suit = ♦️ or suit = ♣️
+		value = 2
+
+player:
+	score: 0
+	cards_to_move: choose 3 from hand
+
+players: 3 to 5 player
+
+❤️s:
+	score = 1
+Q♠️:
+	score = 13
+
+top_scorer: 1 from players where score >= score of others
+
+round where score of top_scorer < 100 :>
+	players:
+		hand: 0 secret card
+		won_cards: 0 card
+
+	fraction: 1/count of players
+	change hand of players: take fraction from deck
+
+	queen_played: won_cards of players where = Q♠️
+	heart_played: won_cards of players where suit = ❤️
+
+	first_player: 1 player from players where:
+		hand of player where = 2♣️
+
+	trick where count of hand of players > 0:>
+		first_trick: count of won_cards of players = 0
+		lead_player: first_player
+			pick_lead: choose 1 from hand where any:
+				suit != ❤️
+				suit = ❤️ and any:
+					hearts_played
+					queen_played
+
+		players:
+			played_card: 1 secret card
+
+		change played_card of lead_player: take pick_lead of lead_player
+		lead_suit: suit of played_card of lead_player
+
+		other_players: next many player from players starting at next lead_player where player != lead_player
+			matching_cards: many from hand where suit = lead_suit
+			pick_response: choose 1 from hand where any:
+				suit = lead_suit
+				not first_trick and not matching_card
+				first_trick and not matching_card and not any:
+					suit = ❤️
+					= Q♠️
+
+		change played_card from other_players: take pick_response from other_players
+
+		trick_winner: 1 from players where:
+			suit of played_card = lead_suit
+			value of played_card > value of played_card of others
+
+		append to won_cards of trick_winner: take played_cards of players
+		change lead_player: trick_winner
+
+	add to score of player from players: sum of score of won_cards of player
+
+winner: many player from players where score of player <= score of others
