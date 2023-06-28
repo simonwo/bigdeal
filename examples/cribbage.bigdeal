@@ -1,0 +1,105 @@
+'Cribbage: a card game for two players.'
+
+player:
+    score: 0
+
+players: 2 player
+
+winner: 1 from players where score > 120
+
+dealer: 1 from players
+other: 1 from players where not = dealer
+'One player is the "dealer" which is decided randomly
+(e.g. by cutting the deck and comparing for biggest turn card)'
+
+scoring_hand:
+    cards: 4 from card
+
+    scoring_cards: cards + turn
+    fifteens: combinations of scoring_cards where sum of combinations = 15
+    pairs: combinations of scoring_cards where:
+        count of combinations = 2
+        runs of combinations where length = 2
+    straights: combinations of scoring_cards where:
+        count of combinations >= 3
+        straights of combinations where length = count of combinations
+    nob: 1 from cards where value = J and suit = suit of turn
+
+    score: sum of:
+        2 * count of fifteens
+        2 * count of pairs
+        length of straights
+        1 * count of nob
+
+many round until winner:>
+    1 deck
+
+    player:
+        hand: 6 secret card
+        pegged_cards: 0 to 4 card
+
+        choose_box: choose 2 from hand
+
+    'If any player scores more than 120 at any point in the round, they
+    immediately win.'
+    trigger when winner:
+        end round
+
+    'The non-dealer cuts the deck somewhere randomly in the middle and the
+    dealer deals from the bottom half of the cut.'
+    change hand of players: take next 12 from deck
+
+    'Players choose 4 cards to keep and 2 cards to form a box. The box is used
+    by the dealer for scoring.'
+    1 secret box: scoring_hand
+        cards: take choose_box of players
+
+    1 turn: next 1 from deck
+    when value of turn = J:
+        add to score of dealer: 1
+
+    'Now players begin "pegging" – placing cards one after each other. Any 15s,
+    pairs, threes, or runs that appear score points. If a player can't play a
+    card to keep the running total below 31, the other player keeps playing
+    cards for as long as they can. The last player to play a card scores 1. If
+    the last player lands directly on 31, they instead score 2.'
+
+    many where hand of players:>
+        pegged_cards: next many pegged_cards of players
+        total: value of pegged_cards
+
+        'If a player can't play a card to keep the running total below 31, the
+        other player keeps playing cards for as long as they can.'
+        peggable_cards of player: hand of player where value <= 31 - total
+
+        current_player: 1 from players starting with dealer
+              choose_peg: choose 1 from peggable_cards
+
+        many where peggable_cards:>
+            when peggable_cards of current_player:
+                add to pegged_cards of current_player: take choose_peg of current_player
+
+                next_run: next 1 from runs of pegged_cards
+                next_straight: next 1 from straights of pegged_cards
+
+                score of pegged_cards:
+                    1 where not peggable_cards
+                    2 where total = 31
+                    2 where total = 15
+                    2 * length of next_run where length of next_run > 1
+                    2 * length of next_straight where length of next_straight > 2
+
+                add to score of current_player: sum of score of pegged_cards
+
+            change current_player: next current_player
+
+    others_hand: scoring_hand
+        cards: hand of other
+    add to score of other: score of others_hand
+
+    dealers_hand: scoring_hand
+        cards: hand of dealer
+    add to score of dealer: score of dealers_hand
+
+    add to score of dealer: score of box
+    change dealer: next dealer
