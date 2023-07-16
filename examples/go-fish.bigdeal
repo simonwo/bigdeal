@@ -1,0 +1,71 @@
+'Go Fish: a card game about collecting sets.
+
+Rules from: https://en.wikipedia.org/w/index.php?title=Go_Fish&oldid=1162696659
+used under the Creative Commons Attribution-ShareAlike License 4.0.'
+
+players: 2 to many player
+
+'Five cards are dealt from a standard 52-card deck to each player, or seven
+cards if there are only two players.'
+initial_deal:
+    5 where count of players > 2
+    7 where count of players = 2
+
+'The remaining cards are shared between the players, usually spread out in a
+disorderly pile referred to as the "ocean" or "pool".'
+pool: 1 secret deck
+
+player:
+    secret hand: take initial_deal from pool
+
+    book:
+        value: 1 from value of hand
+        cards: take 4 from hand where value = value of book
+
+    books: 0 book
+
+'The player to the left of the dealer goes first and play continues clockwise.'
+current_player: 1 from players
+
+'When any player at any time has four cards of one face value, it forms a
+book, and the cards must be placed face up in front of that player.'
+trigger when book of players:>
+    add to books of players: take every book of players
+
+many turn where not finished:>
+    current_player:
+        ask:
+            player: choose 1 from players where != current_player
+            value: choose 1 from value of hand
+
+    'The player whose turn it is to play asks another player for their cards of
+    a particular face value. For example, Alice may ask, "Bob, do you have any
+    threes?" Alice must have at least one card of the rank she requested.'
+    ask: ask of current_player
+
+    'Bob must hand over all cards of that rank if possible.'
+    requested_cards: hand of player of ask where value = value of ask
+    when requested_cards:
+        add to hand of current_player: take requested_cards
+        next turn
+
+    'If he has none, Bob tells Alice to "go fish" (or just simply "fish"),
+    and Alice draws a card from the pool and places it in her own hand.'
+    secret card: next 1 from pool
+    add to hand of current_player: take card
+
+    'Then it is the next player's turn – unless the card Alice drew is
+    the card she asked for, in which case she shows it to the other
+    players, and she gets another turn.'
+    when value of card = value of ask:
+        reveal card
+        next turn
+
+    'Play proceeds to the left.'
+    change current_player: next current_player
+
+'When all sets of cards have been laid down in books, the game ends.'
+finished: sum of count of hand of players = 0
+
+'The winner is the person who has collected the most sets of 4 cards.'
+winner: 1 from players where count of books >= count of books of others
