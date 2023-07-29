@@ -1,0 +1,248 @@
+| Canasta is a card game of the rummy family of games. Players attempt to make
+| melds of seven cards of the same rank and "go out" by playing all cards in their
+| hands.
+|
+| Rules from https://en.wikipedia.org/w/index.php?title=Canasta&oldid=1165001409
+| used under CC-BY-SA 4.0.
+
+'The classic game is for four players in two partnerships of two.'
+players: 4 player
+    partnership: 1 from partnerships where player in players
+    partner: 1 from players of partnership where not = player
+
+| Canasta usually uses two complete decks of 52 French-suited playing cards with
+| two or three Jokers per deck, making a total of 108 or 110 cards.
+1 secret stock:
+    2 deck
+    2 to 3 joker
+
+    wild:
+        value = 2
+        = joker
+
+    bonus: all:
+        value = 3
+        colour of suit = red
+
+| The initial dealer is chosen by any common method. The dealer shuffles the
+| pack, the player to the dealer's right cuts, and the dealer deals out a hand of
+| 11 cards to each player.
+player:
+    secret hand: take 11 from stock
+
+    | A legal meld consists of at least three cards of the same rank, and there is
+    | no limit on how large it can grow.'
+    meld:
+        value: 1 from value of card
+
+        | A meld must consist of at least two natural cards, and can never have
+        | more than three wild cards.
+        cards: 3 to many from source where:
+            any:
+                value = value of meld
+                wild
+            2 from cards where not wild
+            not 4 from cards where wild
+
+        source: many from stock
+
+        | A canasta is a meld of at least seven cards, whether natural or mixed.
+        | A mixed canasta (or; dirty, unnatural, or black canasta) is one that
+        | comprises both natural and wild cards.
+        mixed_canasta: all:
+            count of cards >= 7
+            1 from cards where wild
+
+        | A natural canasta is one that comprises only cards of the same rank.
+        natural_canasta: all:
+            count of cards >= 7
+            not 1 from cards where wild
+
+        canasta: any:
+            mixed_canasta
+            natural_canasta
+
+        points: sum of:
+            points of cards
+            300 where mixed_canasta
+            500 where natural_canasta
+
+card:
+    points:
+        5 where value in 4 to 7
+        10 where value in 8 to K
+        20 where value in 2, A
+
+joker:
+    points: 50
+
+partnership:
+    players: 2 from player
+    score: 0
+
+    initial_meld:
+        15 where score < 0
+        50 where 0 <= score < 1500
+        90 where 1500 <= score < 3000
+        120 where score >= 3000
+
+partnerships:
+    1 partnership:
+        players:
+            1st from players
+            3rd from players
+    1 partnership:
+        players:
+            2nd from players
+            4th from players
+
+| One card is taken from the top of the stack and placed face up to start the
+| discard pile. If that card is wild or a red three, another card is turned and
+| placed on top of it. That continues until a natural card or a black three is
+| turned up.'
+discard:
+    cards:
+         take next many from stock where wild or bonus
+         take next 1 from stock
+
+    | Discarding a wild card freezes the pile.
+    frozen:
+         1 from cards where wild
+
+    | If a wild card or a black three is on top of the discard pile, it may not be
+    | picked up. Playing a black three does not freeze the pile; it just acts as a
+    | stop card, preventing the other player from picking up the pile. The card
+    | discarded after a black three allows the pile to be picked up again (unless
+    | it is a wild card or another black three).
+    stopped:
+        1st from cards where in 3♠️, 3♣️
+        1st from cards where wild
+
+| If a player was dealt red threes, they must instantly play them face up in
+| front of them and draw the same number of replacement cards.
+trigger when hand of players where bonus:
+    add to bonuses of players: take many from hand of players where bonus
+
+| The discard pile should be kept squared up, so only the top card is visible.
+| A player cannot look through the discard pile.
+
+many where not winner:>
+    table:
+        partnership: 1 from partnerships
+        bonuses: 0 to many from stock where bonus
+        melds: 0 to many meld
+
+        concealed: no
+
+        points: sum of:
+            points of melds
+            100 * count of bonuses where count of melds > 0
+            -100 * count of bonuses where count of melds = 0
+            100 where count of 1 from hand of player of partnership = 0
+            100 where concealed
+            400 where all:
+                count of melds > 0
+                count of bonuses = 4
+            -400 where all:
+                count of melds = 0
+                count of bonuses = 4
+
+    tables: every table
+
+    next 1 player from players where not finished:>
+        partnership of player:
+            table: 1 from tables where partnership = partnership of player
+
+        existing_melds: melds of partnership of player
+        possible_new_melds: meld where all:
+            cards in hand of player
+            not value of meld in value of existing_melds
+        possible_existing_melds: meld where all:
+            cards of 1 from existing_melds in cards
+            cards in hand of player
+        possible_melds: possible_new_melds + possible_existing_melds
+
+        player:
+            | A turn begins either by drawing the first card from the stock
+            | into the player's hand or by picking up the entire discard pile.
+            pick_draw: choose 1 from:
+                one_plus_bonuses:
+                    next many from stock where bonus
+                    next 1 from stock
+
+                | A player may pick up the entire discard pile instead of
+                | drawing a card from the stock. They may only pick up the discard pile
+                | if they can use the top card, either in an existing meld or
+                | by making a new meld along with at least two other cards from the hand
+                | (which can include wild cards).
+                discard where all:
+                    1st from discard in cards of possible_melds
+                    not stopped
+
+                    | A frozen pile may only be picked up (unfrozen) if a player can
+                    | meld the top card with two natural cards of the same rank from the player's hand.
+                    any:
+                        not frozen
+                        frozen and 1 from possible_melds where:
+                            1st from discard in cards
+                            2 from cards where not wild
+
+        | In addition, if the player/team has not yet melded, they must meet
+        | the initial meld requirement using the top card of the discard pile
+        | in order to pick up the pile.
+        when pick_draw of player = discard:
+            change possible_new_melds: possible_new_melds where 1st from discard in cards
+
+        add to hand of player: take pick_draw of player
+
+        | During each hand the first time a team lays cards on the table,
+        | the cards of the combined melds must equal a minimum meld requirement
+        | based on the values of each of the cards
+        change concealed of tables: no
+        when points of melds of partnership < initial_meld of partnership:
+            initial_melds: choose 1 from combinations of possible_new_melds where:
+                sum of points of possible_melds >= initial_melds of partnership
+            change concealed of table: yes
+            add to melds of table of partnership of player: take initial_melds
+
+        | Players may then make as many legal melds as they wish
+        | from the cards in their hands.
+        many plays where not end_of_turn:>
+            | A turn ends when the player discards
+            | one card from the hand to the top of the discard pile.
+            end_of_turn:
+                cards of pile = discard
+
+                | A player may go out by using all the cards in hand only if
+                | that player/team has made at least one canasta.
+                not all:
+                    count of hand of player = 1
+                    not 1 from melds where canasta
+
+            player:
+                picked_cards: choose 1 to many from hand
+
+                picked_pile: choose 1 from:
+                    discard where count of picked_cards = 1
+                    every meld where:
+                        cards = picked_cards
+                        not value of meld in value of existing_melds
+                    existing_melds
+
+            cards: picked_cards of player
+            pile: picked_pile of player
+            add to cards of pile: take cards
+            when pile not = discard and pile not in existing_melds:
+                add to existing_melds: pile
+
+    finished:
+        1 from players where hand = empty
+
+    add to score of partnership of tables: points of tables
+
+| The game ends when a player/team's total score reaches 5000.
+| If both players/teams reach 5000 at the end of hand,
+| whoever has the higher score wins the game.
+winner: 1 from partnerships where:
+    score >= 5000
+    score > score of others
