@@ -1,0 +1,125 @@
+| Hanabi: a co-operative firework-building game.
+|
+| Players are aware of other players' cards but not their own,
+| and attempt to play a series of cards in a specific order
+| to set off a simulated fireworks show.
+|
+| Rules used under CC-BY-SA 4
+| from https://en.wikipedia.org/w/index.php?title=Hanabi_(card_game)&oldid=1128949088.
+
+players: 2 to 5 player
+
+colours: 'red', 'green', 'white', 'blue', 'yellow'
+
+card:
+    colour: 1 from colours
+    number: 1 from 1 to 5
+
+| The Hanabi deck contains cards in five suits
+| (white, yellow, green, blue, and red);
+| three 1's, two each of 2's, 3's, and 4's, and one 5.
+secret deck: every card
+    quantity: 1 from:
+        1 where number = 5
+        1 to 2 where number in 2 to 4
+        1 to 3 where number = 1
+
+discard: 0 card from deck
+
+| The game begins with 8 available information tokens
+| and 3 fuse tokens.
+clue: 'clue'
+clues: 8 clue
+used_clues: 0 clue
+
+fuse: 'fuse'
+fuses: 3 fuses
+used_fuses: 0 fuses
+
+pile:
+    colour: 1 from colour of card
+    cards: 0 to 5 card from deck where:
+        number unique
+        colour = colour of pile
+
+piles: every pile where not cards
+
+player:
+    | To start the game, players are dealt a hand
+    | containing five cards (four for 4 or 5 players).
+    inital_deal:
+        5 where count of players < 4
+        4 where count of players >= 4
+    hand: take initial_deal from deck
+
+| As in Blind Man's Bluff, players can see each other's cards
+| but they cannot see their own.
+secrecy of hand of player: player
+
+turn: next from players
+    | Each turn, a player must take one of the following actions:
+    action: choose 1 from 'discard', 'give_clue', 'play'
+
+    | The player chooses a card from their hand and adds it to the discard pile,
+    | then draws a card to replace it. The discarded card is out of the game and
+    | can no longer be played. Discarding a card replenishes one information token.
+    where action = 'discard':
+        add to discard: take choose 1 from hand
+        add to clues: take 1 from used_clues
+
+    | The player points out the cards of either a given number
+    | or a given suit in the hand of another player.
+    | (examples: "This card is your only red card,"
+    | "These two cards are your only 3's"). The information given
+    | must be complete and correct. Giving information consumes
+    | one information token.
+    where action = 'give_clue':
+        teammate: choose 1 from others
+        info: choose 1 from:
+            colour of hand of teammate
+            number of hand of teammate
+        where type of info = colour:
+            cards: hand of friend where colour = info
+            reveal to teammate: colour of cards
+        where type of info = number:
+            cards: hand of friend where number = info
+            reveal to teammate: number of cards
+        add to used_clues: take 1 from clues
+
+    | The player chooses a card from their hand and attempts to add it
+    | to the cards already played. This is successful if the card is
+    | a 1 in a suit that has not yet been played, or if it is the next
+    | number sequentially in a suit that has been played. Otherwise a
+    | fuse token is consumed and the misplayed card is discarded.
+    | Successfully playing a 5 of any suit replenishes one information token.
+    | Whether the play was successful or not, the player draws a replacement card.
+    where action = 'play':
+        card: choose 1 from hand
+        pile: 1 from piles where colour = colour of card
+        where count of cards of pile + 1 = number of card:
+            add to cards of pile: take card
+            where count of cards of pile = count of number of card and used_clues:
+                add to clues: take 1 from used_clues
+        else:
+            add to discard: take card
+            add to used_fuses: take 1 from fuses
+
+    | Play continues until the deck runs out,
+    | and for one full round after that.
+    where not 1 from deck:
+        remove from players: player
+
+    where 1 from deck and not initial_deal from hand:
+        add to hand: take next 1 from deck
+
+many turn where not finished
+
+| The game ends immediately when either all fuse tokens are used up, resulting in a game loss,
+| or all 5's have been played successfully, leading to a game win.
+finished: any:
+    not hand of players
+    not fuses
+
+| At the end of the game, the values of the highest cards in each suit are summed,
+| resulting in a total score out of a possible 25 points.
+score: sum of count of cards of pile
