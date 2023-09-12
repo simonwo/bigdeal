@@ -1,0 +1,208 @@
+| Cluedo is a murder mystery game for three to six players.
+|
+| The object of the game is to determine who murdered the game's victim, where the
+| crime took place, and which weapon was used. Each player assumes the role of one
+| of the six suspects and attempts to deduce the correct answer by strategically
+| moving around a game board representing the rooms of a mansion and collecting
+| clues about the circumstances of the murder from the other players.
+|
+| Rules used under CC-BY-SA 4.0 from
+| https://en.wikipedia.org/w/index.php?title=Cluedo&oldid=1167621248.
+
+players: 3 to 6 player
+
+| The game consists of a board which shows the rooms, corridors and
+| secret-passages of an English country house called Tudor Mansion in Hampshire,
+| England, in 1926.
+board: grid
+    row: 1 to 25
+    col: 1 to 24
+
+| Players' tokens are typically plastic pawns or figurines; the standard edition
+| of Cluedo has six of these suspects.
+suspect:
+    start_space: 1 from board
+
+suspects:
+    1 scarlett: suspect
+        start_space: 1 from board where row = 25 and col = 8
+
+    1 green: suspect
+        start_space: 1 from board where row = 1 and col = 15
+
+    1 mustard: suspect
+        start_space: 1 from board where row = 18 and col = 1
+
+    1 plum: suspect
+        start_space: 1 from board where row = 20 and col = 24
+
+    1 peacock: suspect
+        start_space: 1 from board where row = 7 and col = 24
+
+    1 white: suspect
+        start_space: 1 from board where row = 1 and col = 10
+
+weapons: 'candlestick', 'dagger', 'pipe', 'revolver', 'rope', 'spanner'
+
+| There are nine rooms in the mansion where the murder can take place laid out
+| around the edge of the square game board. Each of the four corner rooms contains
+| a secret passage that leads to the room on the opposite diagonal corner of the
+| map. The centre room is inaccessible to the players.
+room:
+    location: many from board
+    passage: 0 to 1 from rooms initially 0 from rooms
+
+rooms:
+    1 kitchen: room
+        location: board where any:
+            row in 2 to 6 and col in 1 to 6
+            row = 7 and col in 2 to 6
+        passage: study
+
+    1 ballroom: room
+        location: board where any:
+            row in 3 to 8 and col in 9 to 16
+            row = 2 and col in 11 to 14
+
+    1 conservatory: room
+        location: board where any:
+            row in 2 to 5 and col in 18 to 24
+            row = 6 and col in 19 to 24
+        passage: lounge
+
+    1 dining: room
+        location: board where any:
+            row = 10 and col in 1 to 5
+            row in 11 to 16 and col in 1 to 8
+
+    1 billiard: room
+        location: board where any:
+            row in 8 to 12 and col in 19 to 24
+
+    1 library: room
+        location: board where any:
+            row in 14 to 18 and col in 19 to 23
+            row in 15 to 17 and col in 18 to 24
+
+    1 lounge: room
+        location: board where any:
+            row in 19 to 25 and col in 1 to 6
+            row in 19 to 24 and col = 7
+        passage: conservatory
+
+    1 hall: room
+        location: board where any:
+            row in 18 to 24 and col in 10 to 15
+
+    1 study: room
+        location: board where any:
+            row in 21 to 24 and col in 18 to 24
+            row = 25 and col in 19 to 24
+        passage: kitchen
+
+| The corridor areas are marked out as square spaces through which the tokens
+| move horizontally or vertically.
+corridor: many square from board where any:
+    all:
+        not in location of rooms
+        row in 3 to 24
+        col in 2 to 23
+    in start_space of suspects
+    col = 1 and row = 8
+    col = 17 and row = 25
+
+| At the beginning of play, three cards (one suspect, one room, and one
+| weapon) are chosen at random and put into a special envelope, so that no one can
+| see them. These cards represent the solution. The remainder of the cards are
+| distributed among the players.
+suspect_cards: every:
+    suspect: 1 from suspects
+
+weapon_cards: every:
+    weapon: 1 from weapons
+
+room_cards: every:
+    room: 1 from rooms
+
+suspicion:
+    suspect: take 1 from suspect_cards
+    weapon: take 1 from weapon_cards
+    room: take 1 from room_cards
+
+secret solution: take 1 from every suspicion
+
+| All players roll the die/dice and the highest total starts the game, with play
+| again proceeding clockwise.
+suspect_tokens: every:
+    suspect: 1 from suspects
+    location: 1 from board initially start_space of token
+
+num_players: count of players
+player:
+    token: take 1 from suspect_tokens
+    secret hand: take 1/num_players from suspect_cards, weapon_cards, room_cards
+    free_suggestion: yes or no initially no
+
+turn: next many player from players where not winner
+    choose 1 from make_suggestion or no where free_suggestion
+    change free_suggestion: no
+
+    | Players roll the die/dice and move along the board's corridor spaces, or
+    | into the rooms accordingly.
+    moves: 2 from d6
+    possible_locations: successors of location of token where:
+        in corridor or in location of rooms
+        distance = moves
+        location of token of players not in path
+    change location of token: choose 1 from possible_locations
+
+    in_room: 1 room from rooms where location of player in location of room
+    choose 1 from make_suggestion or no where in_room
+
+    | As soon as a player enters a room, they may make a suggestion as to the
+    | details, naming a suspect, the room they are in, and weapon. For
+    | example: "I suspect Professor Plum, in the Dining Room, with the
+    | candlestick". The player's suggestions must include the room they are
+    | currently in and may not be made in the corridors.
+    make_suggestion:
+        room: 1 from rooms where location of token in location
+        suggestion: choose 1 from suspicion where room = room of suggestion
+
+        | The tokens for the suggested suspect and weapon are immediately
+        | moved into that room, if they are not both already present.
+        dragged_token: 1 from token of players where suspect = suspect of suggestion
+        change location of dragged_token: 1 from location of in_room
+
+        | If a player's suggestion has brought another player's token into a room, the
+        | second player may make their own suggestion in the room when their turn comes
+        | up, if desired.
+        dragged_player: 1 from players where token = dragged_token and not = player
+        change free_suggestion of dragged_player: yes
+
+        | Once a player makes a suggestion, the others are called upon to
+        | disprove it. Otherwise, the process continues clockwise around the
+        | table until either one player disproves the accusation, or no one
+        | can do so.
+        reveal to player: 1st card from hand of next many from others where any:
+            suspect of card = suspect of suggestion
+            weapon of card = weapon of suggestion
+            room of card = room of suggestion
+
+    | A player who believes they have determined the correct elements may make
+    | an accusation on their turn. The accusation can include any room, not
+    | necessarily the one occupied by the player (if any), and may be made
+    | immediately following a suggestion.
+    accusation: choose 1 from suspicion or no
+
+    | The accusing player privately checks the three cards in the envelope. If
+    | they match the accusation, the player shows them to everyone and wins;
+    | if not, the player returns them to the envelope and may not move nor
+    | make suggestions/accusations for the remainder of the game.
+    where accusation = solution:
+        remove from players: others
+    where accusation != no and accusation != solution:
+        remove from players: player
+
+| If all players except for one player have made an incorrect accusation, the
+| remaining player automatically wins.
+winner: 1 from players where not others
