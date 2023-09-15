@@ -1,0 +1,74 @@
+BigDeal <: IndentationSensitive {
+    Game = ListOf<Sequence, blankLines>? end
+
+    Sequence = SequenceStatement+
+    SequenceStatement = BlockStatement | SingleLineStatement
+    BlockStatement = BlockDefinition | BlockFilter | BlockSequenceReference
+    SingleLineStatement = (FieldDefinition | Modification | SequenceReference) newline
+
+    PureSequence = PureSequenceStatement+
+    PureSequenceStatement = BlockStatement | PureSingleLineStatement
+    PureSingleLineStatement = (FieldDefinition | SequenceReference) newline
+
+    blankLines = (newline | space)+
+    blankBlock = dedent (newline | space)+ indent
+    BlockOf<X> = newline indent ListOf<X, blankBlock> dedent
+
+    SequenceReference = "take"? "choose"? "next"? QuantitySpecifier? SequenceLiteral FilterExpression?
+    BlockSequenceReference = "take"? "choose"? "next"? QuantitySpecifier? SequenceLiteral CompoundExpression
+
+	newline = "\x0A" "\r"?
+    tab = "\t"
+    from = "from"
+    many = "many"
+    unique = "unique"
+    keyword = from | many | unique | "of" | "take" | "choose" | "next" | "any" | "all"
+
+	integer = ("0".."9")+
+    FractionalNumber = integer "/" integer
+    Number = FractionalNumber | integer | many
+    index = (integer "th") | "1" "st" | "2" "nd" | "3" "rd"
+
+
+    text = dquoteText | squoteText
+    dquote = "\""
+    dquoteText = dquote (~dquote any)* dquote
+    squote = "'"
+    squoteText = squote (~squote any)* squote
+
+    docContent = (~newline any)*
+    docBlock = ("|" docContent (newline | end))+
+
+    identifier = ~keyword ("a".."z" | "A".."Z" | "_")+
+    IdentifierPath = identifier ("of" identifier)*
+
+    Atom = Number | IdentifierPath | text
+
+    InlineSequence = Atom (("," | "or") Atom)*
+    FillSequence = integer IdentifierPath
+    SequenceLiteral = Range | UnaryExpression | BinaryExpression | FillSequence | InlineSequence
+
+    TruthExpression = NotExpression | UnaryExpression | BinaryExpression | CompoundExpression
+    NotExpression = "not" (UnaryExpression | BinaryExpression | CompoundExpression)
+    UnaryOperator = "unique"
+    UnaryExpression = Atom UnaryOperator
+    BinaryOperator = "=" | ">=" | "<=" | "!=" | "in"
+    BinaryExpression = Atom BinaryOperator SequenceLiteral
+    CompoundExpression = "where" ("any" | "all")? ":" BlockOf<PureSequence>
+    FilterExpression = "where" SequenceLiteral
+
+    Range = Atom "to" Atom
+    QuantitySpecifier = (index | Atom) from
+
+    FieldDefinition = integer? IdentifierPath ":" SequenceReference ("initially" SequenceReference)?
+    BlockDefinition = integer? IdentifierPath ":" SequenceReference? BlockOf<Sequence>
+    BlockFilter = FieldDefinition CompoundExpression
+    ModificationKeyword =
+    	"add to" |
+        "prepend to" |
+        "change"
+
+    Modification = ModificationKeyword FieldDefinition
+
+    space := " " | "\t"
+}
