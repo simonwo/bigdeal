@@ -1,16 +1,17 @@
 suits:
-    club: "♣️"
-    diamond: "♦️"
-    heart: "❤️"
-    spade: "♠️"
+    1 club: "♣️"
+    1 diamond: "♦️"
+    1 heart: "❤️"
+    1 spade: "♠️"
 
 faces:
-    jack: "J"
-    queen: "Q"
-    king: "K"
+    1 to 10
+    1 jack: "J"
+    1 queen: "Q"
+    1 king: "K"
 
 card:
     suit: 1 from suits
-    value: 1 from 1 to 10 or 1 from faces
+    value: 1 from faces
 
 deck: every card

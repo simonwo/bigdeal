@@ -7,20 +7,17 @@ blank: ""
     cols: 1 to 3
     content: 1 from nought, cross, blank initially blank
 
-winning_line: line of grid where any:
+winning_line: line of board where any:
     line = 3 nought
     line = 3 cross
 
 player:
     symbol: 1 from nought or cross
 
-players: 2 player
+players: every player
 
 winner: 1 from players where symbol = content of winning_line
 
-current_player: 1 from players
-    pick_square: choose 1 from grid where content = blank
-
 turns: next 1 from players where not winner
-    chosen_square: pick_square
+    chosen_square: choose 1 from board where content = blank
     change content of chosen_square: symbol

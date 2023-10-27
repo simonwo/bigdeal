@@ -1,8 +1,9 @@
 {
-  "name": "bigdeal",
+  "name": "bigdeal-lang",
   "version": "0.0.1",
-  "description": "Bigdeal language parser",
+  "description": "Bigdeal language grammar and parser",
   "main": "build/main.js",
+  "type": "module",
   "scripts": {
     "test": "node build/main.js"
   },
@@ -17,12 +18,14 @@
   },
   "homepage": "https://github.com/simonwo/bigdeal#readme",
   "dependencies": {
+    "graphology": "^0.25.4",
     "ohm-js": "^17.1.0",
     "typescript": "^5.2.2"
   },
   "devDependencies": {
     "@ohm-js/cli": "^2.0.0",
     "raw-loader": "^4.0.2",
+    "ts-loader": "^9.4.4",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.4"
   }

@@ -14,8 +14,8 @@ BigDeal <: IndentationSensitive {
     blankBlock = dedent (newline | space)+ indent
     BlockOf<X> = newline indent ListOf<X, blankBlock> dedent
 
-    SequenceReference = "take"? "choose"? "next"? QuantitySpecifier? SequenceLiteral FilterExpression?
-    BlockSequenceReference = "take"? "choose"? "next"? QuantitySpecifier? SequenceLiteral CompoundExpression
+    SequenceReference = "take"? "choose"? "next"? "every"? QuantitySpecifier? SequenceLiteral FilterExpression?
+    BlockSequenceReference = "take"? "choose"? "next"? "every"? QuantitySpecifier? SequenceLiteral CompoundExpression
 
 	newline = "\x0A" "\r"?
     tab = "\t"
@@ -44,17 +44,25 @@ BigDeal <: IndentationSensitive {
 
     Atom = Number | IdentifierPath | text
 
-    InlineSequence = Atom (("," | "or") Atom)*
+    InlineSequence = NonemptyListOf<Atom, ("," | "or")>
     FillSequence = integer IdentifierPath
-    SequenceLiteral = Range | UnaryExpression | BinaryExpression | FillSequence | InlineSequence
+    SequenceLiteral = Range | NotExpression | UnaryExpression | BinaryExpression | FillSequence | InlineSequence
 
     TruthExpression = NotExpression | UnaryExpression | BinaryExpression | CompoundExpression
-    NotExpression = "not" (UnaryExpression | BinaryExpression | CompoundExpression)
+    NotExpression = "not" (UnaryExpression | BinaryExpression | CompoundExpression | SequenceReference)
     UnaryOperator = "unique"
     UnaryExpression = Atom UnaryOperator
-    BinaryOperator = "=" | ">=" | "<=" | "!=" | "in"
+    BinaryOperator = "=" -- eq
+                   | ">=" -- gt
+                   | "<=" -- lt
+                   | "!=" -- ne
+                   | "in" -- in
     BinaryExpression = Atom BinaryOperator SequenceLiteral
-    CompoundExpression = "where" ("any" | "all")? ":" BlockOf<PureSequence>
+
+    BooleanOperator = "any" -- any
+                    | "all" -- all
+
+    CompoundExpression = "where" BooleanOperator? ":" BlockOf<PureSequence>
     FilterExpression = "where" SequenceLiteral
 
     Range = Atom "to" Atom
@@ -63,12 +71,11 @@ BigDeal <: IndentationSensitive {
     FieldDefinition = integer? IdentifierPath ":" SequenceReference ("initially" SequenceReference)?
     BlockDefinition = integer? IdentifierPath ":" SequenceReference? BlockOf<Sequence>
     BlockFilter = FieldDefinition CompoundExpression
-    ModificationKeyword =
-    	"add to" |
-        "prepend to" |
-        "change"
+    ModificationKeyword = "add to" -- add
+                        | "prepend to" -- prepend
+                        | "change" -- change
 
-    Modification = ModificationKeyword FieldDefinition
+    Modification = ModificationKeyword IdentifierPath ":" SequenceReference
 
     space := " " | "\t"
 }
