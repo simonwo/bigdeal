@@ -1,0 +1,30 @@
+{
+  "name": "bigdeal",
+  "version": "0.0.0",
+  "description": "Board game Integrated Development Environment and Language",
+  "homepage": "https://github.com/simonwo/bigdeal#readme",
+  "author": "Simon Worthington <simon@simonwo.net>",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/simonwo/bigdeal/issues"
+  },
+  "main": "main.js",
+  "directories": {
+    "example": "examples"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simonwo/bigdeal.git"
+  },
+  "scripts": {
+    "bigdeal": "node build/index.js",
+    "build": "npx tsc"
+  },
+  "dependencies": {
+    "bigdeal-lang": "file:lang",
+    "commander": "^11.1.0"
+  },
+  "devDependencies": {
+    "ava": "^6.0.1"
+  }
+}

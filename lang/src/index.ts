@@ -1,8 +1,7 @@
-import grammar from './bigdeal.ohm';
-import tictactoe from './../../examples/tic-tac-toe.bigdeal';
-import cards from './../../examples/cards.bigdeal';
 import * as ohm from 'ohm-js';
 import * as graphology from 'graphology';
+import grammar from './bigdeal.ohm';
+import { EdgeTraversal, edgeDFS } from './edgeTraversal.js';
 
 import Graph = graphology.MultiGraph;
 
@@ -20,9 +19,11 @@ type LiteralNode = {
 enum EdgeType {
     Source = "src",
     Definition = "defn",
+    Modification = "mod",
     Count = "count",
     Filter = "filter",
     Init = "init",
+    Function = "fn",
 }
 
 type Edge = {
@@ -86,7 +87,7 @@ enum ModificationType {
 }
 
 type Modification = {
-    name: string
+    name: string[]
     op: ModificationType
 }
 
@@ -187,8 +188,10 @@ Semantics.addOperation<string>("sourceNode(graph)", {
         this.addSelf(this.args.graph, node)
         this.maybeEdge(this.args.graph, seq.sourceNode(this.args.graph), EdgeType.Source)
         block.sourceNodes(this.args.graph).forEach((n: string) => {
-            const attribs = <Definition>this.args.graph.getNodeAttributes(n)
-            const type = attribs.count === null ? EdgeType.Definition : EdgeType.Source
+            const attribs = <SourceNode>this.args.graph.getNodeAttributes(n)
+            var type: EdgeType = EdgeType.Definition
+            if ("count" in attribs && attribs.count !== null) type = EdgeType.Source
+            if ("op" in attribs) type = EdgeType.Modification
             this.edge(this.args.graph, n, type)
         })
         return this.sourceNodeName
@@ -384,22 +387,274 @@ Semantics.addAttribute<string[]>("path", {
     }
 })
 
+enum VisitOrder {
+    DoNotVisit = -1,
+    CheckFirst = 0,
+    TravelDownwards = 1,
+    TravelUpwards = 2,
+}
 
-export default function main() {
-    const matchResult = Grammar.match(tictactoe)
-    if (matchResult.failed()) {
-        console.log(Grammar.trace(tictactoe).toString())
-        console.log(matchResult.toString(), matchResult.message)
+function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undefined, startForward: boolean): VisitOrder {
+    // 1. No previous edge, just started.
+    if (prev === undefined) {
+        switch (startForward) {
+            // Want to look upwards (at reverse edges) only.
+            case false: return next.forward ? VisitOrder.DoNotVisit : VisitOrder.TravelUpwards
+            // Want to look downwards (at forward edges) only.
+            case true:  return next.forward ? VisitOrder.TravelDownwards : VisitOrder.DoNotVisit
+        }
+    }
+
+    // 2. We just came up an edge.
+    if (!prev.forward) {
+        // a. We can always follow an inbound edge upwards, just we want
+        //    to do it last and check potential matches first.
+        if (!next.forward) return VisitOrder.TravelUpwards
+
+        // b. If we followed a src edge upwards, we can only go up.
+        if (prev.attr.kind === EdgeType.Source) return VisitOrder.DoNotVisit
+
+        // c. If we followed a defn edge upwards, we can look at sibling
+        //    defn edges or go down a src edge
+        // d. If we followed neither source nor defn edge upwards (so
+        //    it's a count or filter), we can only look at downward
+        //    source edges
+        switch (next.attr.kind) {
+            case EdgeType.Definition: return (prev.attr.kind === EdgeType.Definition) ? VisitOrder.CheckFirst : VisitOrder.DoNotVisit
+            case EdgeType.Source:     return VisitOrder.TravelDownwards
+            default:                  return VisitOrder.DoNotVisit
+        }
+    }
+
+    // 3. We just came down an edge. We don't want to follow up edges
+    //    from here (we assume the DFS algorithm will take care of
+    //    popping us back up)
+    if (!next.forward) return VisitOrder.DoNotVisit
+
+    // a. If it was a defn edge, we are checking this local definition
+    //    for a match and we don't want to follow any edges from here.
+    if (prev.attr.kind === EdgeType.Definition) return VisitOrder.DoNotVisit
+
+    // b. Presumably it was a src edge, so we want to check defn edges
+    //    first or keep going down src edges.
+    switch (next.attr.kind) {
+        case EdgeType.Definition: return VisitOrder.CheckFirst
+        case EdgeType.Source:     return VisitOrder.TravelDownwards
+        default:                  return VisitOrder.DoNotVisit
+    }
+}
+
+type FoundNode = {
+    foundPath: string[]
+}
+
+type ResolveLater = {
+    afterName: string[]
+    afterNode: string
+}
+
+type ResolveNext = {
+    startAt: string
+    lookFor: IdentifierPath
+    replace: string
+    progress: string[]
+}
+
+type MultipleSources = {
+    names: string[]
+}
+
+type NotFound = {
+    missingName: string[]
+    missingNode: string
+}
+
+type SearchResult =
+    FoundNode |
+    ResolveLater |
+    ResolveNext |
+    MultipleSources |
+    NotFound
+
+function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchResult {
+    const startNode = resolve.startAt
+    const lookingFor = resolve.lookFor
+    const startForward = graph.getNodeAttributes(startNode) != lookingFor
+    try {
+        edgeDFS(
+            graph,
+            startNode,
+            (node, attr, prev) => {
+                console.error("\tVisit", node, attr, "via", prev)
+                // TODO: nodes with multiple source edges
+                // We are visiting a node.
+                // 1. If we have found another identifier path, we need to resolve
+                //    it first because what it resolves to might contain our target
+                if (node !== startNode && Array.isArray(attr)) {
+                    const first: ResolveLater = {afterName: attr, afterNode: node}
+                    console.error("\tNeed to resolve", first, "first")
+                    throw first
+                }
+
+                // 2. If we have found the a component of our identifier path, i.e.
+                //    this is a Definition node with a name matching the next
+                //    component, we can remove a component of the path
+                if ("name" in attr) {
+                    const defn = Array.from(attr.name)
+                    const remaining = Array.from(lookingFor)
+                    while (remaining.length > 0 && defn.length > 0 && remaining[0] === defn[0]) {
+                        remaining.shift()
+                        defn.shift()
+                    }
+
+                    if (remaining.length === 0) {
+                        const found: FoundNode = {foundPath: Array.of(node)}
+                        throw found
+                    } else if (lookingFor.length != remaining.length) {
+                        const next: ResolveNext = {
+                            startAt: node,
+                            lookFor: remaining,
+                            replace: resolve.replace,
+                            progress: [node],
+                        }
+                        throw next
+                    }
+                }
+
+                // We can return edges in the order specified by `assessEdge`.
+                const edges = graph.mapEdges(node, (edge, attr, src, dst) => {
+                    const record = { edge: edge, attr: attr, forward: graph.source(edge) == node }
+                    console.error("\t\tAssess", src, "->", dst, record, "=", assessEdge(record, prev, startForward))
+                    return record
+                })
+                .filter(edge => assessEdge(edge, prev, startForward) !== VisitOrder.DoNotVisit)
+                .sort((a, b) => assessEdge(a, prev, startForward) - assessEdge(b, prev, startForward))
+                .map(edge => edge.edge)
+
+                console.error("\tEdges to visit:", edges)
+                return edges
+            },
+        )
+    } catch (e: any) {
+        return <SearchResult>e
+    }
+
+    const notFound: NotFound = {missingName: lookingFor, missingNode: resolve.replace}
+    console.error("\tFailed to find", lookingFor)
+    return notFound
+}
+
+function replaceNode(graph: SourceTree, oldNode: string, newNode: string) {
+    graph.forEachInEdge(oldNode, (edge, attr, src, dst) => {
+        console.error("Replace edge", src, "->", dst)
+        graph.dropEdge(edge)
+        graph.addDirectedEdge(src, newNode, attr)
+    })
+    graph.dropNode(oldNode)
+}
+
+function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: string[]) {
+    const lookingForPath = <IdentifierPath>graph.getNodeAttributes(pathNode)
+
+    // If the path has 2 components, and the target node is a definition, this
+    // is a projection: so we can just replace the identifier path with the
+    // source of the projection and add a `fn` edge to the definition.
+    if (lookingForPath.length === 2) {
+        const sourceNode = foundNodes[0]
+        const defnNode = foundNodes[1]
+
+        const defnAttr = graph.getNodeAttributes(defnNode)
+        if ("name" in defnAttr && "count" in defnAttr) {
+            graph.forEachInNeighbor(pathNode, node => {
+                graph.addDirectedEdge(node, defnNode, {kind: EdgeType.Function})
+            })
+            replaceNode(graph, pathNode, sourceNode)
+            return
+        } else {
+            throw new Error(`programming error: don't know how to resolve to ${defnAttr}`)
+        }
+    }
+
+    // If the path only has 1 component, we can just replace the identifier path
+    // with the found node.
+    if (lookingForPath.length === 1) {
+        replaceNode(graph, pathNode, foundNodes[0])
         return
     }
 
-    const graph: SourceTree = new Graph();
-    graph.on("nodeAdded", payload => console.log(`"${payload.key}" [label="${Object.entries(payload.attributes).map(entry => `${entry[0]}: ${entry[1]}`).join("\n")}"]`))
-    graph.on("edgeAdded", payload => console.log(`"${payload.source}" -> "${payload.target}" [label=${payload.attributes.kind}]`))
-
-    console.log("digraph tictactoe {")
-    Semantics(matchResult).sourceNode(graph)
-    console.log("}")
 }
 
-main()
+function resolveScopes(graph: SourceTree): NotFound[] {
+    const stack: ResolveNext[] = []
+    graph.forEachNode((node, attr) => {
+        if (node.startsWith("IdentifierPath")) {
+            stack.push({
+                startAt: node,
+                lookFor: <IdentifierPath>attr,
+                replace: node,
+                progress: [],
+            })
+        }
+    })
+
+    const notFound: NotFound[] = []
+    var todo: ResolveNext | undefined
+    while (todo = stack.shift()) {
+        console.error("Stack:", stack.map(rn => [rn.replace, rn.lookFor]))
+        console.error("Find", todo.lookFor, "starting at", todo.startAt)
+        const searchResult = findParentDefinition(graph, todo)
+
+        if ("foundPath" in searchResult) {
+            resolveIdentifier(graph, todo.replace, todo.progress.concat(searchResult.foundPath))
+        } else if ("afterName" in searchResult) {
+            console.error("Need to resolve", searchResult.afterName, "first")
+            console.error("Not found so far:", notFound)
+            const stackIndex = stack.findIndex(j => j.replace === searchResult.afterNode)
+            const nodeUnfound = notFound.find(value => value.missingNode === searchResult.afterNode)
+            if (stackIndex < 0 && !nodeUnfound) throw new Error("programming error: unresolved ID not in stack")
+
+            if (nodeUnfound) {
+                // We need to resolve something we have previously marked as unfindable
+                // So this node is unfindable too
+                notFound.push({ missingName: todo.lookFor, missingNode: todo.replace })
+                continue
+            }
+
+            // Found the identifier on the stack, so shift it up to occur next
+            const requiredJob = stack[stackIndex]
+            stack.copyWithin(stackIndex, stackIndex+1, stack.length)
+            stack.length -= 1
+            stack.unshift(todo)
+            stack.unshift(requiredJob)
+        } else if ("missingName" in searchResult) {
+            notFound.push(searchResult)
+        } else if ("startAt" in searchResult) {
+            searchResult.progress.unshift(...todo.progress)
+            stack.unshift(searchResult)
+        } else {
+            throw new Error("programming error: unhandled default case")
+        }
+    }
+
+    return notFound
+}
+
+export function parse(game: string) {
+    const matchResult = Grammar.match(game)
+    if (matchResult.failed()) {
+        console.error(Grammar.trace(game).toString())
+        console.error(matchResult.toString(), matchResult.message)
+        throw new Error(matchResult.message)
+    }
+
+    const graph: SourceTree = new Graph();
+    Semantics(matchResult).sourceNode(graph)
+
+    // Resolve scopes
+    const notFound = resolveScopes(graph)
+    notFound.forEach(missing => console.error(`Missing identifier "${missing.missingName}"`))
+
+    return graph
+}
+
+export default parse

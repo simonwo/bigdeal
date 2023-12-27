@@ -1,0 +1,8 @@
+build/
+node_modules/
+
+examples/*.dot
+examples/*.png
+
+.DS_Store
+.npmrc

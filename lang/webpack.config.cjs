@@ -1,4 +1,5 @@
 const path = require('path');
+const DtsBundleWebpack = require('dts-bundle-webpack')
 
 module.exports = {
   entry: './src/index.ts',
@@ -6,6 +7,19 @@ module.exports = {
   experiments: {
     outputModule: true,
   },
+  resolve: {
+    extensionAlias: {
+      '.js': ['.js', '.ts'],
+    },
+  },
+  devtool: 'source-map',
+  plugins: [
+    new DtsBundleWebpack({
+      name: "bigdeal-lang",
+      main: "build/index.d.ts",
+      out: "main.d.ts",
+    })
+  ],
   output: {
     filename: 'main.js',
     library: {

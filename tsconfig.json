@@ -5,7 +5,7 @@
     "lib": ["ES2016"],
     "sourceMap": true,
     "declaration": true,
-    "rootDir": "./src",
+    "rootDir": "./",
     "outDir": "build",
     "moduleResolution": "NodeNext",
     "esModuleInterop": true,
