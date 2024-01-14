@@ -2,6 +2,9 @@ import * as ohm from 'ohm-js';
 import * as graphology from 'graphology';
 import grammar from './bigdeal.ohm';
 import { EdgeTraversal, edgeDFS } from './edgeTraversal.js';
+import { makeGapSkippingGrammar } from './indentation.js';
+
+const IndentationSensitive = makeGapSkippingGrammar(ohm.ExperimentalIndentationSensitive);
 
 import Graph = graphology.MultiGraph;
 
@@ -109,7 +112,7 @@ type Definition = {
 // We will refer to the root of the tree using this node
 const RootNodeName: string = "game"
 
-export const Grammar = ohm.grammar(grammar, {IndentationSensitive: ohm.ExperimentalIndentationSensitive});
+export const Grammar = ohm.grammar(grammar, {IndentationSensitive: IndentationSensitive});
 export const Semantics = Grammar.createSemantics()
 
 // addSelf adds the current node to the graph.

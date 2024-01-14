@@ -1,24 +1,20 @@
 BigDeal <: IndentationSensitive {
-    Game = ListOf<Sequence, blankLines>? end
+    Game = ListOf<Sequence, newline+> end
 
     Sequence = SequenceStatement+
     SequenceStatement = BlockStatement | SingleLineStatement
     BlockStatement = BlockDefinition | BlockFilter | BlockSequenceReference
-    SingleLineStatement = (FieldDefinition | Modification | SequenceReference) newline
+    SingleLineStatement = (FieldDefinition | Modification | SequenceReference) newline+
 
     PureSequence = PureSequenceStatement+
     PureSequenceStatement = BlockStatement | PureSingleLineStatement
-    PureSingleLineStatement = (FieldDefinition | SequenceReference) newline
+    PureSingleLineStatement = (FieldDefinition | SequenceReference) newline+
 
-    blankLines = (newline | space)+
-    blankBlock = dedent (newline | space)+ indent
-    BlockOf<X> = newline indent ListOf<X, blankBlock> dedent
+    BlockOf<X> = newline indent X dedent
 
     SequenceReference = "take"? "choose"? "next"? "every"? QuantitySpecifier? SequenceLiteral FilterExpression?
     BlockSequenceReference = "take"? "choose"? "next"? "every"? QuantitySpecifier? SequenceLiteral CompoundExpression
 
-	newline = "\x0A" "\r"?
-    tab = "\t"
     from = "from"
     many = "many"
     unique = "unique"
@@ -77,5 +73,6 @@ BigDeal <: IndentationSensitive {
 
     Modification = ModificationKeyword IdentifierPath ":" SequenceReference
 
+	newline (a new line) = "\n" "\r"?
     space := " " | "\t"
 }
