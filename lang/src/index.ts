@@ -14,6 +14,8 @@ enum LiteralType {
  BoolType = "bool",
 }
 
+const ManyValue = "many"
+
 type LiteralNode = {
     type: LiteralType
     value: string | number | boolean
@@ -52,10 +54,15 @@ type SourceNode =
 // having a number of characterising flags, it will also have at least a
 // `source` edge and possibly also a `filter` and `count` edge.
 type SequenceReference = {
+    name?: string[]
     every: boolean
     take: boolean
     ordered: boolean
     choose: boolean
+}
+
+function isSeqRef(node: SourceNode): node is SequenceReference {
+    return "every" in node
 }
 
 type FillReference = {
@@ -99,6 +106,10 @@ type Modification = {
 // E.g. `content of board` would appear as ["board", "content"]
 type IdentifierPath = string[]
 
+function isIdentifierPath(node: SourceNode): node is IdentifierPath {
+    return Array.isArray(node)
+}
+
 // A Definition specifies a property of items in a parent sequence. The
 // Definition specifies a `source` edge saying where the content of this
 // property will come from. The Definition can also specify extensions to the
@@ -107,6 +118,10 @@ type IdentifierPath = string[]
 type Definition = {
     name: string[]
     count: number | null
+}
+
+function isDefinition(node: SourceNode): node is Definition {
+    return "name" in node && "count" in node
 }
 
 // We will refer to the root of the tree using this node
@@ -193,6 +208,7 @@ Semantics.addOperation<string>("sourceNode(graph)", {
         block.sourceNodes(this.args.graph).forEach((n: string) => {
             const attribs = <SourceNode>this.args.graph.getNodeAttributes(n)
             var type: EdgeType = EdgeType.Definition
+            if (isSeqRef(attribs)) type = EdgeType.Source
             if ("count" in attribs && attribs.count !== null) type = EdgeType.Source
             if ("op" in attribs) type = EdgeType.Modification
             this.edge(this.args.graph, n, type)
@@ -241,14 +257,16 @@ Semantics.addOperation<string>("sourceNode(graph)", {
     },
 
     SequenceReference(take, choose, next, every, quantity, literal, filter) {
+        const quantitySpec: QuantitySpec = quantity.quantitySpec(this.args.graph)
         const node: SequenceReference = {
+            name: quantitySpec.iterationName,
             every: every.numChildren > 0,
             take: take.numChildren > 0,
             ordered: next.numChildren > 0,
             choose: choose.numChildren > 0,
         }
         this.addSelf(this.args.graph, node)
-        this.maybeEdge(this.args.graph, quantity.sourceNode(this.args.graph), EdgeType.Count)
+        this.maybeEdge(this.args.graph, quantitySpec.countNode, EdgeType.Count)
         this.maybeEdge(this.args.graph, filter.sourceNode(this.args.graph), EdgeType.Filter)
         this.manyEdge(this.args.graph, literal.sourceNodes(this.args.graph), EdgeType.Source)
         return this.sourceNodeName
@@ -260,6 +278,10 @@ Semantics.addOperation<string>("sourceNode(graph)", {
     },
     integer(literal) {
         const node: LiteralNode = {type: LiteralType.IntType, value: this.value}
+        return this.addSelf(this.args.graph, node)
+    },
+    many(_literal) {
+        const node: LiteralNode = {type: LiteralType.IntType, value: ManyValue}
         return this.addSelf(this.args.graph, node)
     },
     IdentifierPath(_path, _, _more) {
@@ -284,7 +306,6 @@ Semantics.addOperation<string>("sourceNode(graph)", {
 
     SingleLineStatement(node, _) { return node.sourceNode(this.args.graph) },
     PureSingleLineStatement(node, _) { return node.sourceNode(this.args.graph) },
-    QuantitySpecifier(node, _) { return node.sourceNode(this.args.graph) },
 
     _iter(...children) {
         if (children.length > 1) {
@@ -337,6 +358,23 @@ Semantics.addOperation<string[]>("sourceNodes(graph)", {
     },
 })
 
+type QuantitySpec = {
+    countNode?: string
+    iterationName: string[]
+}
+
+Semantics.addOperation<QuantitySpec>("quantitySpec(graph)", {
+    QuantitySpecifier(node, name, _) {
+        return {
+            countNode: node.sourceNode(this.args.graph),
+            iterationName: name.path,
+        }
+    },
+    _iter(...children) {
+        return children.length > 0 ? children[0].quantitySpec(this.args.graph) : {}
+    },
+})
+
 type LiteralValue = string | number
 
 // value returns a literal bigdeal value as a native JS value
@@ -386,7 +424,7 @@ Semantics.addAttribute<string[]>("path", {
         return identifiers.path.concat([identifier.sourceString])
     },
     _iter(...children): string[] {
-        return children.flatMap(x => x.sourceString)
+        return children.flatMap(x => x.sourceString).reverse()
     }
 })
 
@@ -397,14 +435,18 @@ enum VisitOrder {
     TravelUpwards = 2,
 }
 
-function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undefined, startForward: boolean): VisitOrder {
+function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undefined, startForward: boolean, namedSeqRef: boolean): VisitOrder {
     // 1. No previous edge, just started.
     if (prev === undefined) {
-        switch (startForward) {
+        if (startForward && next.forward) {
+            switch (next.attr.kind) {
+                case EdgeType.Definition: return VisitOrder.CheckFirst
+                case EdgeType.Source:     return VisitOrder.TravelDownwards
+                default:                  return VisitOrder.DoNotVisit
+            }
+        } else {
             // Want to look upwards (at reverse edges) only.
-            case false: return next.forward ? VisitOrder.DoNotVisit : VisitOrder.TravelUpwards
-            // Want to look downwards (at forward edges) only.
-            case true:  return next.forward ? VisitOrder.TravelDownwards : VisitOrder.DoNotVisit
+            return next.forward ? VisitOrder.DoNotVisit : VisitOrder.TravelUpwards
         }
     }
 
@@ -440,9 +482,14 @@ function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undef
 
     // b. Presumably it was a src edge, so we want to check defn edges
     //    first or keep going down src edges.
+    //
+    //    i. But only if we're not on a sequence ref with a name. If we are
+    //    and it matches our target, it should be handled before we get here
+    //    and a new search started from this point. Else, everything below
+    //    this node will not be implicitly in scope due to the name.
     switch (next.attr.kind) {
         case EdgeType.Definition: return VisitOrder.CheckFirst
-        case EdgeType.Source:     return VisitOrder.TravelDownwards
+        case EdgeType.Source:     return namedSeqRef ? VisitOrder.DoNotVisit : VisitOrder.TravelDownwards
         default:                  return VisitOrder.DoNotVisit
     }
 }
@@ -493,7 +540,7 @@ function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchRe
                 // We are visiting a node.
                 // 1. If we have found another identifier path, we need to resolve
                 //    it first because what it resolves to might contain our target
-                if (node !== startNode && Array.isArray(attr)) {
+                if (node !== startNode && isIdentifierPath(attr)) {
                     const first: ResolveLater = {afterName: attr, afterNode: node}
                     console.error("\tNeed to resolve", first, "first")
                     throw first
@@ -502,7 +549,9 @@ function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchRe
                 // 2. If we have found the a component of our identifier path, i.e.
                 //    this is a Definition node with a name matching the next
                 //    component, we can remove a component of the path
-                if ("name" in attr) {
+                let namedSeqRef = false
+                if ((isDefinition(attr) || isSeqRef(attr)) && attr.name && attr.name.length > 0) {
+                    namedSeqRef = isSeqRef(attr)
                     const defn = Array.from(attr.name)
                     const remaining = Array.from(lookingFor)
                     while (remaining.length > 0 && defn.length > 0 && remaining[0] === defn[0]) {
@@ -527,11 +576,11 @@ function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchRe
                 // We can return edges in the order specified by `assessEdge`.
                 const edges = graph.mapEdges(node, (edge, attr, src, dst) => {
                     const record = { edge: edge, attr: attr, forward: graph.source(edge) == node }
-                    console.error("\t\tAssess", src, "->", dst, record, "=", assessEdge(record, prev, startForward))
+                    console.error("\t\tAssess", src, "->", dst, record, "=", assessEdge(record, prev, startForward, namedSeqRef))
                     return record
                 })
-                .filter(edge => assessEdge(edge, prev, startForward) !== VisitOrder.DoNotVisit)
-                .sort((a, b) => assessEdge(a, prev, startForward) - assessEdge(b, prev, startForward))
+                .filter(edge => assessEdge(edge, prev, startForward, namedSeqRef) !== VisitOrder.DoNotVisit)
+                .sort((a, b) => assessEdge(a, prev, startForward, namedSeqRef) - assessEdge(b, prev, startForward, namedSeqRef))
                 .map(edge => edge.edge)
 
                 console.error("\tEdges to visit:", edges)
@@ -558,25 +607,8 @@ function replaceNode(graph: SourceTree, oldNode: string, newNode: string) {
 
 function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: string[]) {
     const lookingForPath = <IdentifierPath>graph.getNodeAttributes(pathNode)
-
-    // If the path has 2 components, and the target node is a definition, this
-    // is a projection: so we can just replace the identifier path with the
-    // source of the projection and add a `fn` edge to the definition.
-    if (lookingForPath.length === 2) {
-        const sourceNode = foundNodes[0]
-        const defnNode = foundNodes[1]
-
-        const defnAttr = graph.getNodeAttributes(defnNode)
-        if ("name" in defnAttr && "count" in defnAttr) {
-            graph.forEachInNeighbor(pathNode, node => {
-                graph.addDirectedEdge(node, defnNode, {kind: EdgeType.Function})
-            })
-            replaceNode(graph, pathNode, sourceNode)
-            return
-        } else {
-            throw new Error(`programming error: don't know how to resolve to ${defnAttr}`)
-        }
-    }
+    if (foundNodes.length != lookingForPath.length)
+        throw new Error(`programming error: found ${foundNodes} to resolve ${lookingForPath}`)
 
     // If the path only has 1 component, we can just replace the identifier path
     // with the found node.
@@ -585,6 +617,52 @@ function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: stri
         return
     }
 
+    // If the target node is a definition, this is a projection. We can replace
+    // each pair of nodes with an intermediate node that:
+    // - has a `src` edge to the target or previous intermediate node
+    // - has a `fn` edge to the definition that applies the projection
+    let targetNode = foundNodes[foundNodes.length-1]
+    console.error("Final target:", graph.getNodeAttributes(targetNode))
+    if (isDefinition(graph.getNodeAttributes(targetNode))) {
+        while (foundNodes.length > 2) {
+            const fnNode = foundNodes.pop()
+            const fnId = lookingForPath.pop() as string
+            const sourceNode = foundNodes.pop()
+            const sourceId = lookingForPath.pop() as string
+            console.error("Adding intermediate node for", sourceId, "with field", fnId)
+
+            const intermediateNode = `I!${sourceNode}@${fnNode}`
+            const attr: SequenceReference = {
+                name: [sourceId, fnId],
+                every: false,
+                take: false,
+                ordered: false,
+                choose: false,
+            }
+            graph.addNode(intermediateNode, attr)
+            graph.addDirectedEdge(intermediateNode, sourceNode, {kind: EdgeType.Source })
+            graph.addDirectedEdge(intermediateNode, fnNode, {kind: EdgeType.Function })
+
+            foundNodes.push(intermediateNode)
+            lookingForPath.push([sourceId, fnId].join(" of "))
+        }
+
+        // We are down to the last two components, which will be the original
+        // definition node that the identifier was attached to and either the final
+        // intermediate node or the found target.
+        if (foundNodes.length !== 2)
+            throw new Error(`should have 2 nodes left but have ${foundNodes}`)
+        const sourceNode = foundNodes[0]
+        const defnNode = foundNodes[1]
+
+        graph.forEachInNeighbor(pathNode, node => {
+            graph.addDirectedEdge(node, defnNode, {kind: EdgeType.Function})
+        })
+        replaceNode(graph, pathNode, sourceNode)
+        return
+    }
+
+    throw new Error(`programming error: don't know how to resolve ${lookingForPath}`)
 }
 
 function resolveScopes(graph: SourceTree): NotFound[] {
@@ -635,7 +713,7 @@ function resolveScopes(graph: SourceTree): NotFound[] {
             searchResult.progress.unshift(...todo.progress)
             stack.unshift(searchResult)
         } else {
-            throw new Error("programming error: unhandled default case")
+            throw new Error("programming error: unhandled default case: " + searchResult.toString())
         }
     }
 

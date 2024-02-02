@@ -1,0 +1,9 @@
+x:
+    a:
+        b:
+            r: 4
+
+        more: 5
+
+y: many z from x
+    c: b of a of z

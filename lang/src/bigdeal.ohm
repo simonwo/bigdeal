@@ -62,7 +62,7 @@ BigDeal <: IndentationSensitive {
     FilterExpression = "where" SequenceLiteral
 
     Range = Atom "to" Atom
-    QuantitySpecifier = (index | Atom) from
+    QuantitySpecifier = (index | Atom) IdentifierPath? from
 
     FieldDefinition = integer? IdentifierPath ":" SequenceReference ("initially" SequenceReference)?
     BlockDefinition = integer? IdentifierPath ":" SequenceReference? BlockOf<Sequence>

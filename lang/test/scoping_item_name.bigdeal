@@ -1,0 +1,5 @@
+x:
+    a: 1
+
+y: many b from x
+    c: a of b
