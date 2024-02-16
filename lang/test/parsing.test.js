@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename)
 const examples = [
     "block",
     "gaps",
+    "aggregates",
 ]
 
 examples.forEach(example => {

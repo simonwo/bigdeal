@@ -27,8 +27,7 @@
 // the permissive MIT license shown above. This file is also released under the
 // MIT license.
 
-import { DFSStack } from 'graphology-indices';
-import { Attributes, AbstractGraph } from 'graphology-types';
+import { Attributes, AbstractGraph, EdgePredicate } from 'graphology-types';
 
 export type EdgeTraversal<EdgeAttributes> = {
     edge: string
@@ -47,26 +46,86 @@ type EdgeSorter<NodeAttributes, EdgeAttributes> = (
     prev?: EdgeTraversal<EdgeAttributes>,
 ) => string[]
 
-export function edgeDFS<
-    NodeAttributes extends Attributes,
-    EdgeAttributes extends Attributes,
-    GraphAttributes extends Attributes,
->(
-    graph: AbstractGraph<NodeAttributes, EdgeAttributes, GraphAttributes>,
+class edgeDFSStack<N extends Attributes, E extends Attributes, G extends Attributes, T> {
+    graph: AbstractGraph<N, E, G>;
+    stack: T[];
+    seen: Set<string>;
+    size: number;
+
+    constructor(graph: AbstractGraph<N, E, G>) {
+        this.graph = graph
+        this.stack = new Array(this.graph.edges().length)
+        this.seen = new Set()
+        this.size = 0
+    }
+
+    hasAlreadySeenEverything(): boolean {
+        return this.seen.size === this.graph.edges().length;
+    };
+
+    countUnseenEdges(): number {
+        return this.graph.edges().length - this.seen.size;
+    };
+
+    forEachEdgeYetUnseen(callback: EdgePredicate<N>) {
+        const seen = this.seen;
+        const graph = this.graph;
+
+        graph.someEdge(function (edge, attr) {
+            // Useful early exit for connected graphs
+            if (seen.size === graph.edges().length) return true; // break
+
+            // Node already seen?
+            if (seen.has(edge)) return false; // continue
+
+            const source = graph.source(edge)
+            const target = graph.target(edge)
+            const sourceAttr = graph.getNodeAttributes(source)
+            const targetAttr = graph.getNodeAttributes(target)
+            const shouldBreak = callback(edge, attr, source, target, sourceAttr, targetAttr, graph.isDirected(edge));
+
+            if (shouldBreak) return true;
+
+            return false;
+        });
+    };
+
+    has(edge: string): boolean {
+        return this.seen.has(edge);
+    };
+
+    pushWith(edge: string, item: T) {
+        const seenSizeBefore = this.seen.size;
+
+        this.seen.add(edge);
+
+        // If node was already seen
+        if (seenSizeBefore === this.seen.size) return false;
+
+        this.stack[this.size++] = item;
+
+        return true;
+    };
+
+    pop(): T | undefined {
+        if (this.size === 0) return;
+
+        return this.stack[--this.size];
+    };
+}
+
+export function edgeDFS< N extends Attributes, E extends Attributes, G extends Attributes >(
+    graph: AbstractGraph<N, E, G>,
     startingNode: string,
-    visitNode: EdgeSorter<NodeAttributes, EdgeAttributes>,
+    visitNode: EdgeSorter<N, E>,
 ) {
-    const stack = new DFSStack<EdgeTraversalRecord<EdgeAttributes>, NodeAttributes>(graph);
-    stack.pushWith(startingNode, { node: startingNode })
+    const stack = new edgeDFSStack<N, E, G, EdgeTraversalRecord<E>>(graph);
 
-    while (stack.size !== 0) {
-        const record = stack.pop()
-        if (record === undefined) return;
-
+    const doVisit = function(record: EdgeTraversalRecord<E>) {
         const edges = visitNode(record.node, graph.getNodeAttributes(record.node), record.prev)
-        const records = edges.map<EdgeTraversalRecord<EdgeAttributes>>(edge => {
+        edges.reverse().forEach(edge => {
             const forward = graph.source(edge) == record.node
-            return {
+            const newRecord = {
                 prev: {
                     edge: edge,
                     attr: graph.getEdgeAttributes(edge),
@@ -74,9 +133,16 @@ export function edgeDFS<
                 },
                 node: graph.opposite(record.node, edge),
             }
+            stack.pushWith(edge, newRecord)
         })
+    }
 
-        records.reverse().forEach(record => stack.pushWith(record.node, record))
+    doVisit({node: startingNode})
+    while (stack.size !== 0) {
+        const record = stack.pop()
+        if (record === undefined) return;
+
+        doVisit(record)
     }
 
     return

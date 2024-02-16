@@ -1,0 +1,5 @@
+x: 1
+y of x: 2
+
+z: x where y of x > 1
+a: y of z

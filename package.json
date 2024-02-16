@@ -8,7 +8,7 @@
   "bugs": {
     "url": "https://github.com/simonwo/bigdeal/issues"
   },
-  "main": "main.js",
+  "main": "index.js",
   "directories": {
     "example": "examples"
   },

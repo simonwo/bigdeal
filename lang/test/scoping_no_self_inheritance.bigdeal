@@ -1,0 +1,5 @@
+x: 1
+y of x: 2
+
+a: y of x
+b: y of a

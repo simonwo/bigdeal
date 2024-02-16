@@ -6,3 +6,6 @@ examples/*.png
 
 .DS_Store
 .npmrc
+
+include.mk
+.include.lock

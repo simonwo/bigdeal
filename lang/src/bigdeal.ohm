@@ -48,17 +48,23 @@ BigDeal <: IndentationSensitive {
     NotExpression = "not" (UnaryExpression | BinaryExpression | CompoundExpression | SequenceReference)
     UnaryOperator = "unique"
     UnaryExpression = Atom UnaryOperator
-    BinaryOperator = "=" -- eq
-                   | ">=" -- gt
-                   | "<=" -- lt
+    binaryOperator = "=" -- eq
+                   | ">=" -- ge
+                   | ">" -- gt
+                   | "<=" -- le
+                   | "<" -- lt
                    | "!=" -- ne
                    | "in" -- in
-    BinaryExpression = Atom BinaryOperator SequenceLiteral
+                   | "+" -- add
+                   | "-" -- sub
+                   | "*" -- mul
+                   | "/" -- div
+    BinaryExpression = Atom binaryOperator SequenceLiteral
 
-    BooleanOperator = "any" -- any
+    booleanOperator = "any" -- any
                     | "all" -- all
 
-    CompoundExpression = "where" BooleanOperator? ":" BlockOf<PureSequence>
+    CompoundExpression = "where" booleanOperator? ":" BlockOf<PureSequence>
     FilterExpression = "where" SequenceLiteral
 
     Range = Atom "to" Atom
@@ -67,11 +73,11 @@ BigDeal <: IndentationSensitive {
     FieldDefinition = integer? IdentifierPath ":" SequenceReference ("initially" SequenceReference)?
     BlockDefinition = integer? IdentifierPath ":" SequenceReference? BlockOf<Sequence>
     BlockFilter = FieldDefinition CompoundExpression
-    ModificationKeyword = "add to" -- add
+    modificationKeyword = "add to" -- add
                         | "prepend to" -- prepend
                         | "change" -- change
 
-    Modification = ModificationKeyword IdentifierPath ":" SequenceReference
+    Modification = modificationKeyword IdentifierPath ":" SequenceReference
 
 	newline (a new line) = "\n" "\r"?
     space := " " | "\t"

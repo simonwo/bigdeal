@@ -1,0 +1,12 @@
+x: 1
+
+y of x: x
+    a: c
+    b: x where a = 1
+
+z of x: x
+    a: d
+    e: x where a = 2
+
+c: 1
+d: 2

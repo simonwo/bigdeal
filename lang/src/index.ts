@@ -28,7 +28,8 @@ enum EdgeType {
     Count = "count",
     Filter = "filter",
     Init = "init",
-    Function = "fn",
+    Context = "ctx",
+    Aggregate = "agg",
 }
 
 type Edge = {
@@ -80,8 +81,10 @@ enum Operation {
     Not = "not",
     Equal = "=",
     NotEqual = "!=",
-    GreaterThan = ">=",
-    LessThan = "<=",
+    GreaterOrEqual = ">=",
+    GreaterThan = ">",
+    LessOrEqual = "<=",
+    LessThan = "<",
     Contains = "in",
     Range = "to",
 }
@@ -400,20 +403,26 @@ Semantics.addAttribute<number | null>("quantity", {
 })
 
 Semantics.addAttribute<Operation>("operation", {
-    BinaryOperator_eq: (_) => Operation.Equal,
-    BinaryOperator_ne: (_) => Operation.NotEqual,
-    BinaryOperator_gt: (_) => Operation.GreaterThan,
-    BinaryOperator_lt: (_) => Operation.LessThan,
-    BinaryOperator_in: (_) => Operation.Contains,
-    BooleanOperator_any: (_) => Operation.Any,
-    BooleanOperator_all: (_) => Operation.All,
+    binaryOperator_eq: (_) => Operation.Equal,
+    binaryOperator_ne: (_) => Operation.NotEqual,
+    binaryOperator_ge: (_) => Operation.GreaterOrEqual,
+    binaryOperator_gt: (_) => Operation.GreaterThan,
+    binaryOperator_le: (_) => Operation.LessOrEqual,
+    binaryOperator_lt: (_) => Operation.LessThan,
+    binaryOperator_in: (_) => Operation.Contains,
+    binaryOperator_add: (_) => Operation.Add,
+    binaryOperator_sub: (_) => Operation.Subtract,
+    binaryOperator_mul: (_) => Operation.Multiply,
+    binaryOperator_div: (_) => Operation.Divide,
+    booleanOperator_any: (_) => Operation.Any,
+    booleanOperator_all: (_) => Operation.All,
     _iter: (...l)  => l[0].operation,
 })
 
 Semantics.addAttribute<ModificationType>("modificationType", {
-    ModificationKeyword_add:     (_) => ModificationType.AddTo,
-    ModificationKeyword_prepend: (_) => ModificationType.PrependTo,
-    ModificationKeyword_change:  (_) => ModificationType.Change,
+    modificationKeyword_add:     (_) => ModificationType.AddTo,
+    modificationKeyword_prepend: (_) => ModificationType.PrependTo,
+    modificationKeyword_change:  (_) => ModificationType.Change,
 })
 
 // path returns an array of strings representing the path to some value, with
@@ -441,6 +450,7 @@ function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undef
         if (startForward && next.forward) {
             switch (next.attr.kind) {
                 case EdgeType.Definition: return VisitOrder.CheckFirst
+                case EdgeType.Aggregate:  return VisitOrder.CheckFirst
                 case EdgeType.Source:     return VisitOrder.TravelDownwards
                 default:                  return VisitOrder.DoNotVisit
             }
@@ -476,9 +486,9 @@ function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undef
     //    popping us back up)
     if (!next.forward) return VisitOrder.DoNotVisit
 
-    // a. If it was a defn edge, we are checking this local definition
+    // a. If it was a defn or agg edge, we are checking this local definition
     //    for a match and we don't want to follow any edges from here.
-    if (prev.attr.kind === EdgeType.Definition) return VisitOrder.DoNotVisit
+    if ([EdgeType.Definition, EdgeType.Aggregate].includes(prev.attr.kind)) return VisitOrder.DoNotVisit
 
     // b. Presumably it was a src edge, so we want to check defn edges
     //    first or keep going down src edges.
@@ -489,6 +499,7 @@ function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undef
     //    this node will not be implicitly in scope due to the name.
     switch (next.attr.kind) {
         case EdgeType.Definition: return VisitOrder.CheckFirst
+        case EdgeType.Aggregate:  return VisitOrder.CheckFirst
         case EdgeType.Source:     return namedSeqRef ? VisitOrder.DoNotVisit : VisitOrder.TravelDownwards
         default:                  return VisitOrder.DoNotVisit
     }
@@ -541,28 +552,36 @@ function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchRe
                 // 1. If we have found another identifier path, we need to resolve
                 //    it first because what it resolves to might contain our target
                 if (node !== startNode && isIdentifierPath(attr)) {
-                    const first: ResolveLater = {afterName: attr, afterNode: node}
+                    const first: ResolveLater = { afterName: attr, afterNode: node }
                     console.error("\tNeed to resolve", first, "first")
                     throw first
                 }
 
-                // 2. If we have found the a component of our identifier path, i.e.
-                //    this is a Definition node with a name matching the next
-                //    component, we can remove a component of the path
-                let namedSeqRef = false
-                if ((isDefinition(attr) || isSeqRef(attr)) && attr.name && attr.name.length > 0) {
-                    namedSeqRef = isSeqRef(attr)
-                    const defn = Array.from(attr.name)
-                    const remaining = Array.from(lookingFor)
+                // 2. If we have found the a component of our identifier path we
+                //    can remove a component of the path. This is allowed if:
+                //
+                //    a. We came down a defn or agg edge and we find a named
+                //    definition, or
+                //    b. We came down a src edge and we find a named sequence
+                //    reference (loop var), or
+                //    c. We came up any edge and found any named item
+                const namedSeqRef = isSeqRef(attr) && attr.name !== undefined && attr.name.length > 0
+                const namedDefn = isDefinition(attr) && attr.name !== undefined && attr.name.length > 0
+                const backwardEdge = prev?.forward === false
+                const canResolve = (namedSeqRef && (backwardEdge || prev?.attr.kind === EdgeType.Source)) ||
+                    (namedDefn && (backwardEdge || (prev && [EdgeType.Definition, EdgeType.Aggregate].includes(prev?.attr.kind))))
+                if (canResolve && attr.name && attr.name.length > 0) {
+                    const defn = Array.from(attr.name) // copy
+                    const remaining = Array.from(lookingFor) // copy
                     while (remaining.length > 0 && defn.length > 0 && remaining[0] === defn[0]) {
                         remaining.shift()
                         defn.shift()
                     }
 
-                    if (remaining.length === 0) {
-                        const found: FoundNode = {foundPath: Array.of(node)}
+                    if (remaining.length === 0 && defn.length === 0) {
+                        const found: FoundNode = { foundPath: Array.of(node) }
                         throw found
-                    } else if (lookingFor.length != remaining.length) {
+                    } else if (defn.length === 0) {
                         const next: ResolveNext = {
                             startAt: node,
                             lookFor: remaining,
@@ -579,9 +598,9 @@ function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchRe
                     console.error("\t\tAssess", src, "->", dst, record, "=", assessEdge(record, prev, startForward, namedSeqRef))
                     return record
                 })
-                .filter(edge => assessEdge(edge, prev, startForward, namedSeqRef) !== VisitOrder.DoNotVisit)
-                .sort((a, b) => assessEdge(a, prev, startForward, namedSeqRef) - assessEdge(b, prev, startForward, namedSeqRef))
-                .map(edge => edge.edge)
+                    .filter(edge => assessEdge(edge, prev, startForward, namedSeqRef) !== VisitOrder.DoNotVisit)
+                    .sort((a, b) => assessEdge(a, prev, startForward, namedSeqRef) - assessEdge(b, prev, startForward, namedSeqRef))
+                    .map(edge => edge.edge)
 
                 console.error("\tEdges to visit:", edges)
                 return edges
@@ -606,24 +625,35 @@ function replaceNode(graph: SourceTree, oldNode: string, newNode: string) {
 }
 
 function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: string[]) {
-    const lookingForPath = <IdentifierPath>graph.getNodeAttributes(pathNode)
-    if (foundNodes.length != lookingForPath.length)
-        throw new Error(`programming error: found ${foundNodes} to resolve ${lookingForPath}`)
+    const lookingForPath = graph.getNodeAttributes(pathNode)
+
+    // We have found the home for this aggregate. Now attach it with an `agg`
+    // edge to the final discovered node.
+    if (isDefinition(lookingForPath) && lookingForPath.name.length >= 2) {
+        lookingForPath.name = [lookingForPath.name.pop() as string]
+        graph.forEachInEdge(pathNode, edge => graph.dropEdge(edge))
+
+        const target = foundNodes.pop()
+        graph.addDirectedEdge(target, pathNode, {kind: EdgeType.Aggregate})
+        console.error("Link aggregate", target, "->", pathNode)
+        return
+    }
 
     // If the path only has 1 component, we can just replace the identifier path
     // with the found node.
-    if (lookingForPath.length === 1) {
+    if (isIdentifierPath(lookingForPath) && foundNodes.length === 1) {
         replaceNode(graph, pathNode, foundNodes[0])
         return
     }
 
-    // If the target node is a definition, this is a projection. We can replace
-    // each pair of nodes with an intermediate node that:
+    // If the target node is a definition, this is a projection or an aggregate.
+    // We can replace each pair of nodes with an intermediate node that:
     // - has a `src` edge to the target or previous intermediate node
     // - has a `fn` edge to the definition that applies the projection
     let targetNode = foundNodes[foundNodes.length-1]
-    console.error("Final target:", graph.getNodeAttributes(targetNode))
-    if (isDefinition(graph.getNodeAttributes(targetNode))) {
+    console.error("Final target:", targetNode, graph.getNodeAttributes(targetNode), "Found nodes:", foundNodes)
+    if (isIdentifierPath(lookingForPath) && isDefinition(graph.getNodeAttributes(targetNode))) {
+        // TODO handle fields of aggregates where foundNodes.length !== lookingForPath.length
         while (foundNodes.length > 2) {
             const fnNode = foundNodes.pop()
             const fnId = lookingForPath.pop() as string
@@ -640,25 +670,37 @@ function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: stri
                 choose: false,
             }
             graph.addNode(intermediateNode, attr)
-            graph.addDirectedEdge(intermediateNode, sourceNode, {kind: EdgeType.Source })
-            graph.addDirectedEdge(intermediateNode, fnNode, {kind: EdgeType.Function })
+
+            // TODO: work out if this check is needed. Shouldn't aggs and projs both have contexts now?
+            const inboundAggEdge = graph.someInEdge(fnNode, (_, attr) => { return attr.kind === EdgeType.Aggregate })
+            if (inboundAggEdge) {
+                graph.addDirectedEdge(intermediateNode, fnNode, {kind: EdgeType.Source})
+            } else {
+                graph.addDirectedEdge(intermediateNode, sourceNode, {kind: EdgeType.Source })
+                graph.addDirectedEdge(intermediateNode, fnNode, {kind: EdgeType.Context })
+            }
 
             foundNodes.push(intermediateNode)
             lookingForPath.push([sourceId, fnId].join(" of "))
         }
 
         // We are down to the last two components, which will be the original
-        // definition node that the identifier was attached to and either the final
-        // intermediate node or the found target.
+        // definition node that the identifier was attached to and either the
+        // final intermediate node or the found target.
+        //
+        // Turn the path node into a sequence reference node (retaining the
+        // source information and inbound edges) and then attach edges to the
+        // discovered source and context.
         if (foundNodes.length !== 2)
             throw new Error(`should have 2 nodes left but have ${foundNodes}`)
         const sourceNode = foundNodes[0]
         const defnNode = foundNodes[1]
 
-        graph.forEachInNeighbor(pathNode, node => {
-            graph.addDirectedEdge(node, defnNode, {kind: EdgeType.Function})
+        graph.updateNodeAttributes(pathNode, _ => {
+            return {every: false, take: false, ordered: false, choose: false}
         })
-        replaceNode(graph, pathNode, sourceNode)
+        graph.addDirectedEdge(pathNode, defnNode, {kind: EdgeType.Source})
+        graph.addDirectedEdge(pathNode, sourceNode, {kind: EdgeType.Context})
         return
     }
 
@@ -667,8 +709,28 @@ function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: stri
 
 function resolveScopes(graph: SourceTree): NotFound[] {
     const stack: ResolveNext[] = []
+
+    // First, resolve all the aggregates by finding the objects they should be
+    // attached to. Doing it first is because subsequently resolving references
+    // to those aggregates can then follow the usual process of finding the
+    // first node and the resolving the second path element downwards.
     graph.forEachNode((node, attr) => {
-        if (node.startsWith("IdentifierPath")) {
+        if (isDefinition(attr) && attr.name.length > 1) {
+            const target = Array.from(attr.name)
+            target.pop()
+
+            stack.push({
+                startAt: node,
+                lookFor: target,
+                replace: node,
+                progress: [],
+            })
+        }
+    })
+
+    // Second, find each identifier path and resolve it.
+    graph.forEachNode((node, attr) => {
+        if (isIdentifierPath(attr)) {
             stack.push({
                 startAt: node,
                 lookFor: <IdentifierPath>attr,
@@ -686,6 +748,7 @@ function resolveScopes(graph: SourceTree): NotFound[] {
         const searchResult = findParentDefinition(graph, todo)
 
         if ("foundPath" in searchResult) {
+            console.error("Got 'im! Found", todo.progress.concat(searchResult.foundPath), "to replace", todo.lookFor)
             resolveIdentifier(graph, todo.replace, todo.progress.concat(searchResult.foundPath))
         } else if ("afterName" in searchResult) {
             console.error("Need to resolve", searchResult.afterName, "first")
@@ -724,7 +787,6 @@ export function parse(game: string) {
     const matchResult = Grammar.match(game)
     if (matchResult.failed()) {
         console.error(Grammar.trace(game).toString())
-        console.error(matchResult.toString(), matchResult.message)
         throw new Error(matchResult.message)
     }
 
