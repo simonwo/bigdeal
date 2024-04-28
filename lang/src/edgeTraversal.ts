@@ -29,22 +29,27 @@
 
 import { Attributes, AbstractGraph, EdgePredicate } from 'graphology-types';
 
-export type EdgeTraversal<EdgeAttributes> = {
+export type EdgeTraversal = {
     edge: string
-    attr: EdgeAttributes
     forward: boolean
 }
 
+export type EdgeTraversalAttr<EdgeAttributes> = EdgeTraversal & {
+    attr: EdgeAttributes
+}
+
 type EdgeTraversalRecord<EdgeAttributes> = {
-    prev?: EdgeTraversal<EdgeAttributes>
+    prev?: EdgeTraversalAttr<EdgeAttributes>
     node: string
+    path: string[]
 }
 
 type EdgeSorter<NodeAttributes, EdgeAttributes> = (
     node: string,
     attr: NodeAttributes,
-    prev?: EdgeTraversal<EdgeAttributes>,
-) => string[]
+    prev?: EdgeTraversalAttr<EdgeAttributes>,
+    path?: string[],
+) => EdgeTraversal[]
 
 class edgeDFSStack<N extends Attributes, E extends Attributes, G extends Attributes, T> {
     graph: AbstractGraph<N, E, G>;
@@ -122,22 +127,22 @@ export function edgeDFS< N extends Attributes, E extends Attributes, G extends A
     const stack = new edgeDFSStack<N, E, G, EdgeTraversalRecord<E>>(graph);
 
     const doVisit = function(record: EdgeTraversalRecord<E>) {
-        const edges = visitNode(record.node, graph.getNodeAttributes(record.node), record.prev)
-        edges.reverse().forEach(edge => {
-            const forward = graph.source(edge) == record.node
+        const edges = visitNode(record.node, graph.getNodeAttributes(record.node), record.prev, record.path)
+        edges.reverse().forEach(traversal => {
             const newRecord = {
                 prev: {
-                    edge: edge,
-                    attr: graph.getEdgeAttributes(edge),
-                    forward: forward,
+                    edge: traversal.edge,
+                    attr: graph.getEdgeAttributes(traversal.edge),
+                    forward: traversal.forward,
                 },
-                node: graph.opposite(record.node, edge),
+                node: traversal.forward ? graph.target(traversal.edge) : graph.source(traversal.edge),
+                path: (record.path ?? []).concat(record.node),
             }
-            stack.pushWith(edge, newRecord)
+            stack.pushWith(traversal.edge, newRecord)
         })
     }
 
-    doVisit({node: startingNode})
+    doVisit({node: startingNode, path: []})
     while (stack.size !== 0) {
         const record = stack.pop()
         if (record === undefined) return;

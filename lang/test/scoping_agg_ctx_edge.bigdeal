@@ -1,0 +1,7 @@
+dog: "labrador", "aussie shepard"
+best of dog: dog
+
+hound: dog
+    happy: "yes"
+
+is_happy: happy of best of hound

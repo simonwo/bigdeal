@@ -21,6 +21,8 @@ const examples = [
     // `d` is in the filter of `e`, so we should be able to find it by only
     // following src or filter edges
     { name: "sibling_aggs", paths: { "e": "d", "b": "c" }, via: ["src", "filter"] },
+    { name: "agg_inheritance", paths: { "z": "c" }, via: ["src"] },
+    { name: "agg_ctx_edge", paths: { "is_happy": "happy" }, via: ["src"] }
 ]
 
 examples.forEach(example => {
@@ -54,7 +56,9 @@ examples.forEach(example => {
                         return example.via.includes(attr.kind)
                     } else return true
                 })
-                return edges
+                return edges.map(edge => {
+                    return { edge: edge, forward: result.source(edge) === node }
+                })
             })
             assert.true(found, `couldn't find path from ${defnName} to ${targetName}`)
         }

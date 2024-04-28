@@ -1,7 +1,8 @@
 import * as ohm from 'ohm-js';
 import * as graphology from 'graphology';
+import {allSimplePaths} from 'graphology-simple-path';
 import grammar from './bigdeal.ohm';
-import { EdgeTraversal, edgeDFS } from './edgeTraversal.js';
+import { EdgeTraversalAttr, edgeDFS } from './edgeTraversal.js';
 import { makeGapSkippingGrammar } from './indentation.js';
 
 const IndentationSensitive = makeGapSkippingGrammar(ohm.ExperimentalIndentationSensitive);
@@ -444,7 +445,7 @@ enum VisitOrder {
     TravelUpwards = 2,
 }
 
-function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undefined, startForward: boolean, namedSeqRef: boolean): VisitOrder {
+function assessEdge(next: EdgeTraversalAttr<Edge>, prev: EdgeTraversalAttr<Edge> | undefined, startForward: boolean, namedSeqRef: boolean): VisitOrder {
     // 1. No previous edge, just started.
     if (prev === undefined) {
         if (startForward && next.forward) {
@@ -454,9 +455,12 @@ function assessEdge(next: EdgeTraversal<Edge>, prev: EdgeTraversal<Edge> | undef
                 case EdgeType.Source:     return VisitOrder.TravelDownwards
                 default:                  return VisitOrder.DoNotVisit
             }
-        } else {
+        } else if (!startForward) {
             // Want to look upwards (at reverse edges) only.
-            return next.forward ? VisitOrder.DoNotVisit : VisitOrder.TravelUpwards
+            return (!startForward && next.forward) ? VisitOrder.DoNotVisit : VisitOrder.TravelUpwards
+        } else {
+            // If we are going forward and the next edge is backward, ignore it.
+            return VisitOrder.DoNotVisit
         }
     }
 
@@ -539,8 +543,18 @@ type SearchResult =
 
 function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchResult {
     const startNode = resolve.startAt
+    const startNodeAttr = graph.getNodeAttributes(startNode)
     const lookingFor = resolve.lookFor
-    const startForward = graph.getNodeAttributes(startNode) != lookingFor
+
+    let startForward = true
+    if (isIdentifierPath(startNodeAttr)) {
+        startForward = (startNodeAttr !== lookingFor)
+    } else if (isDefinition(startNodeAttr)) {
+        startForward = !lookingFor.reduce((agg, name, index) => {
+            return agg && (name === startNodeAttr.name[index])
+        }, true)
+    }
+
     try {
         edgeDFS(
             graph,
@@ -592,15 +606,29 @@ function findParentDefinition(graph: SourceTree, resolve: ResolveNext): SearchRe
                     }
                 }
 
+                const stopAtNamedSeqRefs = namedSeqRef && resolve.progress.length === 0
+                const assessEdgesFromNode = (node: string, prev: EdgeTraversalAttr<Edge> | undefined, startForward: boolean) => {
+                    return graph.mapEdges(node, (edge, attr, src, dst) => {
+                        const record = { edge: edge, attr: attr, forward: graph.source(edge) == node }
+                        console.error("\t\tAssess", src, "->", dst, record, "=", assessEdge(record, prev, startForward, stopAtNamedSeqRefs), startForward)
+                        return record
+                    })
+                    .filter(edge => assessEdge(edge, prev, startForward, stopAtNamedSeqRefs) !== VisitOrder.DoNotVisit)
+                    .sort((a, b) => assessEdge(a, prev, startForward, stopAtNamedSeqRefs) - assessEdge(b, prev, startForward, stopAtNamedSeqRefs))
+                }
+
+                // If we have reached a node that one of our previous nodes has
+                // inherited from, then we need to consider the properties on
+                // them first as they may override properties on this node. So
+                // add their edges to the resolution queue to be looked at
+                // first, in order of increasing depth
+                const derivedEdges = resolve.progress
+                    .flatMap(derived => (nodesInScopeViaInheritance(graph, node, derived) ?? []).reverse())
+                    .flatMap(derived => assessEdgesFromNode(derived, undefined, true))
+
                 // We can return edges in the order specified by `assessEdge`.
-                const edges = graph.mapEdges(node, (edge, attr, src, dst) => {
-                    const record = { edge: edge, attr: attr, forward: graph.source(edge) == node }
-                    console.error("\t\tAssess", src, "->", dst, record, "=", assessEdge(record, prev, startForward, namedSeqRef))
-                    return record
-                })
-                    .filter(edge => assessEdge(edge, prev, startForward, namedSeqRef) !== VisitOrder.DoNotVisit)
-                    .sort((a, b) => assessEdge(a, prev, startForward, namedSeqRef) - assessEdge(b, prev, startForward, namedSeqRef))
-                    .map(edge => edge.edge)
+                const ownEdges = assessEdgesFromNode(node, prev, startForward)
+                const edges = derivedEdges.concat(...ownEdges)
 
                 console.error("\tEdges to visit:", edges)
                 return edges
@@ -622,6 +650,19 @@ function replaceNode(graph: SourceTree, oldNode: string, newNode: string) {
         graph.addDirectedEdge(src, newNode, attr)
     })
     graph.dropNode(oldNode)
+}
+
+function nodesInScopeViaInheritance(graph: SourceTree, original: string, derived: string): string[] {
+    const inheritingTypes = [EdgeType.Source, EdgeType.Context]
+    const manyPaths = allSimplePaths(graph, derived, original)
+    return manyPaths.filter(path => {
+        for (let i = 1; i < path.length; i++) {
+            if (!graph.findEdge(path[i-1], path[i], (_edge, attr) => inheritingTypes.includes(attr.kind))) {
+                return false
+            }
+        }
+        return true
+    }).flat()
 }
 
 function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: string[]) {
@@ -676,8 +717,8 @@ function resolveIdentifier(graph: SourceTree, pathNode: string, foundNodes: stri
             if (inboundAggEdge) {
                 graph.addDirectedEdge(intermediateNode, fnNode, {kind: EdgeType.Source})
             } else {
-                graph.addDirectedEdge(intermediateNode, sourceNode, {kind: EdgeType.Source })
-                graph.addDirectedEdge(intermediateNode, fnNode, {kind: EdgeType.Context })
+                graph.addDirectedEdge(intermediateNode, sourceNode, {kind: EdgeType.Context })
+                graph.addDirectedEdge(intermediateNode, fnNode, {kind: EdgeType.Source })
             }
 
             foundNodes.push(intermediateNode)
