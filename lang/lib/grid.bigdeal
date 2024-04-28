@@ -1,0 +1,31 @@
+grid:
+    row: many
+    col: many
+
+    fwd_diag_index: row + col
+    bck_diag_index: row - col
+
+rows of grid:
+    row: 1 from row of grid
+    squares: many square from grid where row of square = row
+
+cols of grid:
+    col: 1 from col of grid
+    squares: many square from grid where col of square = col
+
+forward_diagonal of grid:
+    index: 1 from fwd_diag_index of grid
+    squares: many square from grid where fwd_diag_index = index
+
+backward_diagonal of grid:
+    index: 1 from bck_diag_index of grid
+    squares: many square from grid where bck_diag_index = index
+
+diagonal of grid:
+    forward_diagonal of grid
+    backward_diagonal of grid
+
+line of grid:
+    rows of grid
+    cols of grid
+    diagonal of grid

@@ -3,11 +3,11 @@ cross: "X"
 blank: ""
 
 1 board: grid
-    rows: 1 to 3
-    cols: 1 to 3
+    row: 1 to 3
+    col: 1 to 3
     content: 1 from nought, cross, blank initially blank
 
-winning_line: line of board where any:
+winning_line: 1 line from line of board where any:
     line = 3 nought
     line = 3 cross
 
@@ -16,7 +16,7 @@ player:
 
 players: every player
 
-winner: 1 from players where symbol = content of winning_line
+winner: 1 from players where symbol = content of squares of winning_line
 
 turns: next 1 from players where not winner
     chosen_square: choose 1 from board where content = blank

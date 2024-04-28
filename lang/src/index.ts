@@ -2,6 +2,7 @@ import * as ohm from 'ohm-js';
 import * as graphology from 'graphology';
 import {allSimplePaths} from 'graphology-simple-path';
 import grammar from './bigdeal.ohm';
+import grid from '../lib/grid.bigdeal';
 import { EdgeTraversalAttr, edgeDFS } from './edgeTraversal.js';
 import { makeGapSkippingGrammar } from './indentation.js';
 
@@ -812,7 +813,36 @@ function resolveScopes(graph: SourceTree): NotFound[] {
             stack.unshift(todo)
             stack.unshift(requiredJob)
         } else if ("missingName" in searchResult) {
-            notFound.push(searchResult)
+            // The name might be something in our already parsed library
+            // modules. So first check if linking in any module will help.
+            const addModuleName = Array.from(libraryModules.keys()).find(moduleName => {
+                const module = libraryModules.get(moduleName)
+                return module?.someNeighbor(RootNodeName, (_, attr) => {
+                   return isDefinition(attr) && attr.name.every((v, i) => v === searchResult.missingName[i])
+                })
+            })
+
+            if (addModuleName !== undefined) {
+                const addModule = libraryModules.get(addModuleName)
+                addModule?.forEachNode((node, attr) => {
+                    if (node === RootNodeName) return
+
+                    const newName = addModuleName + "!" + node
+                    graph.addNode(newName, attr)
+                })
+                addModule?.forEachEdge((_, attr, src, dst) => {
+                    const newSrcName = src === RootNodeName ? RootNodeName : addModuleName + "!" + src
+                    const newDstName = dst === RootNodeName ? RootNodeName : addModuleName + "!" + dst
+                    graph.addDirectedEdge(newSrcName, newDstName, attr)
+                })
+
+                // Put the same thing back on the stack and try resolving it
+                // again now that we have linked in the library module
+                stack.unshift(todo)
+            } else {
+                console.error(`${searchResult.missingName} not found in any standard library module`)
+                notFound.push(searchResult)
+            }
         } else if ("startAt" in searchResult) {
             searchResult.progress.unshift(...todo.progress)
             stack.unshift(searchResult)
@@ -823,6 +853,9 @@ function resolveScopes(graph: SourceTree): NotFound[] {
 
     return notFound
 }
+
+const libraryModules: Map<string, SourceTree> = new Map()
+libraryModules.set("grid", parse(grid))
 
 export function parse(game: string) {
     const matchResult = Grammar.match(game)
